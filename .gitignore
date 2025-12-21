@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-*.pyd
+# *.pyd  # C++ modülleri - kullanıcılar için gerekli
 .Python
 
 # Virtual Environment
@@ -15,6 +15,7 @@ ENV/
 # IDE
 .vscode/
 .idea/
+.history/
 *.swp
 *.swo
 *~
@@ -34,7 +35,7 @@ CMakeFiles/
 *.obj
 *.a
 *.lib
-*.dll
+# *.dll  # lib/ klasöründeki DLL'ler kullanıcılar için gerekli
 *.exp
 *.pdb
 *.ilk
@@ -65,7 +66,8 @@ dist/
 # test_*.py
 
 # Data files (optional - uncomment if you want to exclude large data)
-# *.csv
+*.csv
+!cpp/benchmark_data.csv  # Test için gerekli olabilir, ama büyük
 # *.parquet
 
 # Third party (pybind11 is already in cpp/thirdparty, but exclude build artifacts)
