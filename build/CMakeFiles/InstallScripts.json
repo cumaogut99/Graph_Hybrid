@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Users/MONSTER/Desktop/graph_hybrid_5/build/cmake_install.cmake",
+		"C:/Users/MONSTER/Desktop/graph_hybrid_5/build/thirdparty/pybind11/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

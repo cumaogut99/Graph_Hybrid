@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\build\CMakeFiles\5ce8508fee785ecc5da3fb29da235f30\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{1F40374B-4634-33DF-9D80-CE247CA6BC25}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

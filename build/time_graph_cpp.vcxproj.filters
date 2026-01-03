@@ -1,0 +1,73 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\data\column.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\data\dataframe.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\data\csv_loader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\data\mpai_writer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\data\mpai_reader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\processing\filter_engine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\processing\statistics_engine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\processing\limit_violation_engine.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\processing\simd_filter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\processing\simd_stats.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\processing\critical_points.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\processing\downsample.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\core\version.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\core\data_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\core\data_provider.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\src\sources\mpai_source.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\bindings\module.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\bindings\data_bindings_v2.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\bindings\processing_bindings.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\bindings\core_bindings.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\MONSTER\Desktop\graph_hybrid_5\cpp\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{932BAB48-F996-3665-B433-94C2E1C10C16}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

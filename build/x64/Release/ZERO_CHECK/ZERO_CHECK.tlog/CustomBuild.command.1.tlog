@@ -1,0 +1,10 @@
+^C:\USERS\MONSTER\DESKTOP\GRAPH_HYBRID_5\BUILD\CMAKEFILES\5CE8508FEE785ECC5DA3FB29DA235F30\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/MONSTER/Desktop/graph_hybrid_5/cpp -BC:/Users/MONSTER/Desktop/graph_hybrid_5/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/MONSTER/Desktop/graph_hybrid_5/build/time_graph_cpp.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

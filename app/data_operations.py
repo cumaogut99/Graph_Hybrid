@@ -1,0 +1,335 @@
+"""
+Data Operations Module
+
+Veri yükleme ve kaydetme işlemlerini yöneten fonksiyonlar.
+
+Bu modül şunları içerir:
+- Dosya yükleme dialog'u ve işlemleri
+- Veri kaydetme (CSV, Excel)
+- Veri kalite kontrolü ve raporlama
+
+Refactored from: app.py (TimeGraphApp sınıfı)
+"""
+
+import logging
+import os
+from typing import Optional, Dict, Any
+import polars as pl
+from PyQt5.QtWidgets import QFileDialog, QMessageBox, QDialog
+from PyQt5.QtCore import QThread, pyqtSignal as Signal
+
+# Import DataImportDialog ve DataLoader
+from src.data.data_import_dialog import DataImportDialog
+from src.data.data_loader import DataLoader
+
+logger = logging.getLogger(__name__)
+
+
+class DataOperations:
+    """
+    Veri yükleme ve kaydetme işlemlerini yöneten sınıf.
+    TimeGraphApp'den ayrıştırılmış, bağımsız çalışabilen modül.
+    """
+    
+    def __init__(self, main_window):
+        """
+        Args:
+            main_window: TimeGraphApp ana pencere referansı
+        """
+        self.main_window = main_window
+        self.load_threads = []
+        self.save_thread = None
+        self.load_worker = None
+        self.is_loading_cancelled = False  # Flag to prevent callbacks after cancel
+        
+        # Connect to loading manager cancel signal
+        if hasattr(main_window, 'loading_manager'):
+            main_window.loading_manager.cancel_requested.connect(self._on_cancel_loading)
+        
+    def open_file_dialog(self):
+        """
+        Dosya açma dialog'unu göster ve veri yükleme işlemini başlat.
+        
+        Refactored from: app.py -> TimeGraphApp._on_file_open()
+        """
+        logger.info("Dosya açma işlemi başlatıldı")
+        
+        # Desteklenen dosya formatları
+        file_filter = (
+            "Veri Dosyaları (*.csv *.xlsx *.xls);;",
+            "CSV Dosyaları (*.csv);;",
+            "Excel Dosyaları (*.xlsx *.xls);;",
+            "Tüm Dosyalar (*.*)"
+        )
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self.main_window,
+            "Veri Dosyası Seç",
+            "",
+            "".join(file_filter)
+        )
+        
+        if file_path:
+
+            
+            # Gelişmiş import dialog'unu aç
+            import_dialog = DataImportDialog(file_path, self.main_window)
+            if import_dialog.exec_() == QDialog.Accepted:
+                # Import ayarlarını al
+                settings = import_dialog.get_import_settings()
+                self.load_data_with_settings(settings)
+                return True
+            else:
+                logger.info("Dosya import işlemi iptal edildi")
+                return False
+        
+        return False
+    
+    def load_data_with_settings(self, settings: Dict[str, Any]):
+        """
+        Verilen ayarlarla veri yükleme işlemini başlat.
+        
+        Refactored from: app.py -> TimeGraphApp._load_data_with_settings()
+        
+        Args:
+            settings: Import dialog'undan gelen ayarlar
+        """
+        try:
+            file_path = settings['file_path']
+            filename = os.path.basename(file_path)
+            
+            # Start loading operation
+            # Reset cancellation flag for new load
+            self.is_loading_cancelled = False
+            logger.info(f"[LOAD] Starting new file load: {filename}")
+            
+            if hasattr(self.main_window, 'loading_manager'):
+                # Add subtitle for CSV files to indicate conversion
+                subtitle = "Converting CSV to MPAI for better performance" if file_path.endswith('.csv') else ""
+                self.main_window.loading_manager.start_operation("file_loading", f"Loading {filename}...", subtitle=subtitle)
+            if hasattr(self.main_window, 'status_bar'):
+                self.main_window.status_bar.set_operation("File Loading", 0)
+            
+            # === MULTI-FILE CHECK ===
+            file_manager = self.main_window.file_manager
+            
+            # Check if file already open
+            existing_index = file_manager.is_file_already_open(file_path)
+            if existing_index >= 0:
+                file_manager.file_tab_widget.setCurrentIndex(existing_index)
+                if hasattr(self.main_window, 'loading_manager'):
+                    self.main_window.loading_manager.finish_operation("file_loading")
+                QMessageBox.information(
+                    self.main_window,
+                    "Dosya Zaten Açık",
+                    f"'{filename}' dosyası zaten açık.\nİlgili sekmeye geçildi."
+                )
+                return
+            
+            # Check file limit
+            if not file_manager.can_add_file():
+                current_count = len(file_manager.loaded_files)
+                logger.warning(f"Cannot add file: {current_count}/{file_manager.max_files} files already loaded")
+                QMessageBox.warning(
+                    self.main_window,
+                    "Maksimum Dosya Sayısı",
+                    f"Maksimum {file_manager.max_files} dosya açık olabilir.\n"
+                    f"Şu anda {current_count} dosya açık.\n"
+                    f"Yeni dosya yüklemek için önce bir dosyayı kapatın."
+                )
+                if hasattr(self.main_window, 'loading_manager'):
+                    self.main_window.loading_manager.finish_operation("file_loading")
+                return
+            
+            # Dosya boyutunu kontrol et
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            # 25 MB limiti kaldırıldı - C++ engine büyük dosyaları destekliyor
+            if file_size_mb > 1024:  # 1 GB üzeri
+                if hasattr(self.main_window, 'loading_manager'):
+                    self.main_window.loading_manager.update_operation("file_loading", f"Very large file: {filename} ({file_size_mb:.1f} MB) - C++ engine")
+            elif file_size_mb > 100:
+                if hasattr(self.main_window, 'loading_manager'):
+                    self.main_window.loading_manager.update_operation("file_loading", f"Large file: {filename} ({file_size_mb:.1f} MB) - C++ accelerated")
+            else:
+                if hasattr(self.main_window, 'loading_manager'):
+                    self.main_window.loading_manager.update_operation("file_loading", f"Loading: {filename}")
+            
+            # === THREAD YÖNETİMİ ===
+            # Yeni thread oluştur
+            load_thread = QThread()
+            load_worker = DataLoader(settings)
+            load_worker.moveToThread(load_thread)
+
+            # Connect signals - main_window'daki callback'leri kullan
+            load_thread.started.connect(load_worker.run)
+            load_worker.finished.connect(self.main_window.on_loading_finished)
+            load_worker.error.connect(self.main_window.on_loading_error)
+            
+            if hasattr(self.main_window, 'loading_manager'):
+                load_worker.progress.connect(
+                    lambda msg, pct: self.main_window.loading_manager.update_operation("file_loading", msg, pct)
+                )
+            
+            # Cleanup
+            load_worker.finished.connect(load_thread.quit)
+            load_worker.error.connect(load_thread.quit)
+            load_worker.finished.connect(load_worker.deleteLater)
+            load_thread.finished.connect(load_thread.deleteLater)
+            
+            # Thread'i listede tut
+            self.load_threads.append((load_thread, load_worker))
+            self.load_worker = load_worker
+            self.main_window.load_worker = load_worker  # Main window için referans
+
+            # Start the thread
+            load_thread.start()
+            logger.debug(f"Started loading thread for {filename}")
+
+        except Exception as e:
+            error_msg = f"Dosya yükleme başlatılırken hata oluştu: {str(e)}"
+            logger.error(error_msg)
+            if hasattr(self.main_window, 'loading_manager'):
+                self.main_window.loading_manager.finish_operation("file_loading")
+            QMessageBox.critical(self.main_window, "Dosya Yükleme Hatası", error_msg)
+            if hasattr(self.main_window, 'status_bar'):
+                self.main_window.status_bar.showMessage("Dosya yükleme başarısız", 5000)
+    
+    def show_data_quality_summary(self, df: pl.DataFrame, filename: str = ""):
+        """
+        Yüklenen verinin kalite özetini göster.
+        
+        Refactored from: app.py -> TimeGraphApp._show_data_quality_summary()
+        
+        Args:
+            df: Polars DataFrame or MpaiReader
+            filename: Dosya adı
+        """
+        try:
+            # Check for MpaiReader
+            if hasattr(df, 'get_header'):
+                logger.info(f"[QUALITY REPORT] MPAI Reader loaded: {filename}")
+                logger.info(f"[QUALITY REPORT] {df.get_row_count():,} rows, {df.get_column_count()} columns")
+                logger.info("[QUALITY REPORT] Skipping detailed quality check for large file performance.")
+                return
+
+            # Hızlı kalite kontrolü
+            total_cols = len(df.columns)
+            total_rows = df.height
+            
+            # NULL oranlarını hesapla
+            high_null_cols = []
+            for col in df.columns:
+                null_count = df[col].null_count()
+                if null_count > 0:
+                    null_pct = (null_count / total_rows) * 100
+                    if null_pct > 20:
+                        high_null_cols.append((str(col), null_pct, null_count))
+            
+            # Log raporu
+            logger.info(f"[QUALITY REPORT] Veri Kalite Raporu - {filename}")
+            logger.info(f"[QUALITY REPORT] Toplam: {total_rows} satir, {total_cols} kolon")
+            
+            if high_null_cols:
+                logger.info(f"[QUALITY REPORT] Yuksek NULL orani olan kolonlar: {len(high_null_cols)}")
+                for col, pct, count in high_null_cols[:5]:
+                    logger.info(f"[QUALITY REPORT] - '{col}': {count} NULL (%{pct:.1f}) - otomatik duzeltildi")
+            else:
+                logger.info(f"[QUALITY REPORT] Tum kolonlar temiz (dusuk NULL orani)")
+                
+            logger.info(f"[QUALITY REPORT] Veri kullanima hazir!")
+            
+        except Exception as e:
+            logger.debug(f"Data quality summary failed: {e}")
+    
+    def cleanup_threads(self):
+        """Thread'leri güvenli şekilde temizle."""
+        logger.info("Cleaning up data operations threads...")
+        for thread, worker in self.load_threads:
+            if thread:
+                try:
+                    if thread.isRunning():
+                        thread.quit()
+                        if not thread.wait(2000):
+                            logger.warning(f"Thread did not finish, terminating...")
+                            thread.terminate()
+                            thread.wait(1000)
+                except RuntimeError as e:
+                    logger.debug(f"Thread already deleted: {e}")
+    
+    def _on_cancel_loading(self):
+        """Handle cancel request from loading manager."""
+        try:
+            logger.info("[CANCEL] User requested to cancel loading operation")
+            
+            # Set cancellation flag to prevent callbacks
+            self.is_loading_cancelled = True
+            
+            # Stop the current loading thread
+            if self.load_worker:
+                # Try to cancel the worker gracefully first
+                if hasattr(self.load_worker, 'cancel'):
+                    self.load_worker.cancel()
+                
+                # Get temp file paths before stopping
+                temp_mpai = self.load_worker.settings.get('_temp_mpai_path')
+                temp_settings = self.load_worker.settings.get('_temp_settings_path')
+                
+                # Stop the thread gracefully (with safety checks)
+                for thread, worker in self.load_threads:
+                    if worker == self.load_worker:
+                        try:
+                            if thread and thread.isRunning():
+                                logger.info("[CANCEL] Stopping loading thread...")
+                                thread.quit()
+                                # Wait longer for graceful exit since we requested cancel
+                                if not thread.wait(5000):  # Wait 5 seconds
+                                    logger.info("[CANCEL] Thread did not stop gracefully, terminating...")
+                                    thread.terminate()
+                                    thread.wait(2000)  # Wait 2 more seconds after terminate
+                                else:
+                                    logger.info("[CANCEL] Thread stopped gracefully")
+                        except RuntimeError:
+                            # Thread already deleted - this is fine
+                            logger.debug("[CANCEL] Thread already deleted")
+                        break
+                
+                # Give the OS time to release file handles
+                import time
+                time.sleep(0.5)
+                
+                # Try to clean up temporary files (best effort - no warnings if fails)
+                import shutil
+                if temp_mpai and os.path.exists(temp_mpai):
+                    try:
+                        if os.path.isdir(temp_mpai):
+                            shutil.rmtree(temp_mpai)
+                        else:
+                            os.remove(temp_mpai)
+                        logger.info(f"[CANCEL] Deleted temp MPAI: {temp_mpai}")
+                    except Exception:
+                        # Silently fail - file will be cleaned up on next app start
+                        # This is expected when C++ file handles are still open
+                        logger.debug(f"[CANCEL] Temp file will be cleaned up on next app start: {temp_mpai}")
+                
+                if temp_settings and os.path.exists(temp_settings):
+                    try:
+                        os.remove(temp_settings)
+                        logger.info(f"[CANCEL] Deleted temp settings: {temp_settings}")
+                    except Exception:
+                        logger.debug(f"[CANCEL] Settings file will be cleaned up on next app start")
+                
+                self.load_worker = None
+            
+            # Finish the loading operation
+            if hasattr(self.main_window, 'loading_manager'):
+                self.main_window.loading_manager.finish_operation("file_loading")
+            
+            # Update status bar
+            if hasattr(self.main_window, 'status_bar'):
+                self.main_window.status_bar.showMessage("Loading cancelled by user", 3000)
+            
+            logger.info("[CANCEL] Loading operation cancelled successfully")
+            
+        except Exception as e:
+            logger.error(f"[CANCEL] Error during cancel: {e}")
+

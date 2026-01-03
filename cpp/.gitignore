@@ -1,0 +1,54 @@
+# Build directories
+build/
+build-*/
+out/
+cmake-build-*/
+
+# IDE files
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+
+# Compiled files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dylib
+*.dll
+*.pyd
+*.exp
+*.pdb
+*.ilk
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Testing
+Testing/
+CTestTestfile.cmake
+
+# Documentation
+docs/html/
+docs/latex/
+
+# Temporary
+*.tmp
+*.log
+*.swp
+*~
+

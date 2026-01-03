@@ -1,0 +1,20 @@
+# Time Graph Uygulaması - Gerekli Paketler
+# ==========================================
+
+# GUI Framework
+PyQt5>=5.15.0
+
+# Veri İşleme
+numpy>=1.21.0
+polars>=0.19.0
+pandas>=1.4.0
+
+# Görselleştirme
+matplotlib>=3.5.0
+
+# EXE Build (geliştirme için)
+pyinstaller>=5.0.0
+pillow>=8.0.0
+
+# Ek Kütüphaneler
+openpyxl>=3.0.0  # Excel dosya desteği için
