@@ -296,6 +296,7 @@ class LegendManager(QObject):
     
     def _update_values(self):
         """Update legend values based on current cursor position or latest data."""
+<<<<<<< HEAD
         if not self.parent:
             return
 
@@ -314,6 +315,10 @@ class LegendManager(QObject):
         except Exception as e:
             # Don't log every 100ms to avoid spamming, but catch to prevent crash
             pass
+=======
+        # This will be called by the parent widget with actual data
+        pass
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     
     def update_values_from_data(self, signal_data: Dict[str, Any], cursor_position: Optional[float] = None):
         """Update legend values from signal data."""

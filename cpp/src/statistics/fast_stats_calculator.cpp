@@ -1,6 +1,10 @@
 /**
  * @file fast_stats_calculator.cpp
+<<<<<<< HEAD
  * @brief Implementation of O(1) statistics calculator with OpenMP support
+=======
+ * @brief Implementation of O(1) statistics calculator
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
  */
 
 #include "timegraph/statistics/fast_stats_calculator.hpp"
@@ -8,10 +12,13 @@
 #include <cmath>
 #include <limits>
 
+<<<<<<< HEAD
 #ifdef HAVE_OPENMP
 #include <omp.h>
 #endif
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 namespace timegraph {
 namespace mpai {
 
@@ -156,6 +163,7 @@ void FastStatsCalculator::accumulate_partial_chunk(
   double max_val = -std::numeric_limits<double>::infinity();
   uint64_t valid_count = 0;
 
+<<<<<<< HEAD
   // OpenMP parallel reduction for large data
   // Note: MSVC OpenMP 2.0 only supports reduction for +, -, *, &, |, ^, &&, ||
   // min/max reduction requires -openmp:llvm which is not always available
@@ -166,6 +174,9 @@ void FastStatsCalculator::accumulate_partial_chunk(
   // implementation
   for (int64_t i = 0; i < data_size; ++i) {
     double val = data[static_cast<size_t>(i)];
+=======
+  for (double val : data) {
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     // Skip NaN and Inf
     if (std::isnan(val) || std::isinf(val)) {
       continue;

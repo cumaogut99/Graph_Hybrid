@@ -347,6 +347,7 @@ class MpaiProjectManager:
             metadata=metadata,
         )
     
+<<<<<<< HEAD
     def create_project_from_directory(
         self,
         source_dir: str,
@@ -477,6 +478,8 @@ class MpaiProjectManager:
             metadata=metadata if metadata else ProjectMetadata(),
         )
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     # =========================================================================
     # Project Opening
     # =========================================================================

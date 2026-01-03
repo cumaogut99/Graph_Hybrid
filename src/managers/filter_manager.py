@@ -394,9 +394,12 @@ class FilterManager:
         self.calculation_threads[calc_id] = calculation_thread
         self.calculation_workers[calc_id] = calculation_worker
         
+<<<<<<< HEAD
         # ✅ FIX: Store current worker reference for callback access to cpp_conditions
         self._current_worker = calculation_worker
         
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         # Connect signals with proper order and error handling
         logger.info(f"[FILTER THREADED] Connecting signals")
         calculation_thread.started.connect(calculation_worker.run)

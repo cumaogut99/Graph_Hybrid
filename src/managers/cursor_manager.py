@@ -16,9 +16,12 @@ from PyQt5.QtGui import QColor
 
 logger = logging.getLogger(__name__)
 
+<<<<<<< HEAD
 # Instance counter for debugging
 _cursor_manager_instance_counter = 0
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 class CursorManager(QObject):
     """
     Manages cursor interactions for the time analysis plot.
@@ -33,11 +36,14 @@ class CursorManager(QObject):
     def __init__(self, plot_widgets):
         super().__init__()
         
+<<<<<<< HEAD
         # Unique instance ID for debugging
         global _cursor_manager_instance_counter
         _cursor_manager_instance_counter += 1
         self._instance_id = _cursor_manager_instance_counter
         
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.plot_widgets = plot_widgets  # List of plot widgets for stacked plots
         self.plots = plot_widgets  # Alias for compatibility
         self.current_mode = "dual"  # Permanently set to dual
@@ -48,7 +54,10 @@ class CursorManager(QObject):
         
         # State tracking
         self.dual_cursor_count = 0  # For dual mode click tracking
+<<<<<<< HEAD
         self._pending_cursor_timer = None  # Track pending cursor creation timer
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # Snap to data points feature
         self.snap_to_data_enabled = False
@@ -70,9 +79,15 @@ class CursorManager(QObject):
             try:
                 plot_widget.getViewBox().sigRangeChanged.connect(self._on_view_range_changed)
             except Exception as e:
+<<<<<<< HEAD
                 logger.warning(f"[CM#{self._instance_id}] Failed to connect view range signal: {e}")
         
         logger.debug(f"[CM#{self._instance_id}] CursorManager CREATED with {len(plot_widgets)} plot widgets")
+=======
+                logger.warning(f"Failed to connect view range signal: {e}")
+        
+        logger.debug(f"CursorManager initialized with {len(plot_widgets)} plot widgets")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
     def set_mode(self, mode: str):
         """
@@ -83,33 +98,56 @@ class CursorManager(QObject):
         """
         # Only accept 'dual' mode - log warning if something else is requested
         if mode != "dual":
+<<<<<<< HEAD
             logger.warning(f"[CM#{self._instance_id}] Cursor mode '{mode}' not supported - using 'dual' instead")
             mode = "dual"
             
         logger.debug(f"[CM#{self._instance_id}] set_mode() called with mode={mode}")
         
         # Clear existing cursors first (this also cancels any pending creation)
+=======
+            logger.warning(f"Cursor mode '{mode}' not supported - using 'dual' instead")
+            mode = "dual"
+            
+        logger.debug(f"Setting cursor mode to: {mode}")
+        
+        # Clear existing cursors first
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.clear_all()
         
         self.current_mode = mode
         self.dual_cursor_count = 0  # Reset dual cursor counter
         
+<<<<<<< HEAD
         logger.debug(f"[CM#{self._instance_id}] After clear_all: cursor1_count={len(self.dual_cursors_1)}, cursor2_count={len(self.dual_cursors_2)}")
+=======
+        logger.debug(f"Cursor mode changed to: {mode}")
+        logger.debug(f"Cursor lists after mode change - Cursor1: {len(self.dual_cursors_1) if self.dual_cursors_1 else 0}, Cursor2: {len(self.dual_cursors_2) if self.dual_cursors_2 else 0}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
         # Auto-create dual cursors (mode is always 'dual')
         self._auto_create_dual_cursors()
 
     def _auto_create_dual_cursors(self):
         """Creates two cursors at 1/3 and 2/3 of the current view."""
+<<<<<<< HEAD
         logger.debug(f"[CM#{self._instance_id}] _auto_create_dual_cursors() called")
         
         if not self.plot_widgets:
             logger.warning(f"[CM#{self._instance_id}] No plot widgets available for auto-creating cursors")
+=======
+        if not self.plot_widgets:
+            logger.warning("No plot widgets available for auto-creating cursors")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return
             
         # Prevent duplicate cursor creation
         if self.dual_cursors_1 or self.dual_cursors_2:
+<<<<<<< HEAD
             logger.debug(f"[CM#{self._instance_id}] Cursors already exist (cursor1={len(self.dual_cursors_1)}, cursor2={len(self.dual_cursors_2)}), skipping creation")
+=======
+            logger.debug("Cursors already exist, skipping creation")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return
             
         try:
@@ -123,11 +161,16 @@ class CursorManager(QObject):
                     break
             
             if not valid_plot:
+<<<<<<< HEAD
                 logger.debug(f"[CM#{self._instance_id}] No valid/visible plot widget found for cursor creation")
+=======
+                logger.warning("No valid plot widget found for cursor creation")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 return
                 
             # Don't force autorange - use current view range instead
             # This prevents unwanted zoom when activating cursors
+<<<<<<< HEAD
             
             # Cancel any pending timer to prevent duplicate cursor creation
             if self._pending_cursor_timer is not None:
@@ -145,17 +188,34 @@ class CursorManager(QObject):
             
         except Exception as e:
             logger.error(f"[CM#{self._instance_id}] Failed to auto-create dual cursors: {e}")
+=======
+            # valid_plot.autoRange()  # REMOVED: This was causing X-axis zoom issues
+            
+            # Wait a moment to ensure plot is ready
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(50, self._delayed_cursor_creation)
+            
+        except Exception as e:
+            logger.error(f"Failed to auto-create dual cursors: {e}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             import traceback
             traceback.print_exc()
     
     def _delayed_cursor_creation(self):
         """Delayed cursor creation after autorange."""
+<<<<<<< HEAD
         logger.debug(f"[CM#{self._instance_id}] _delayed_cursor_creation() TRIGGERED by timer")
         
         try:
             # Double-check that we don't already have cursors
             if self.dual_cursors_1 or self.dual_cursors_2:
                 logger.debug(f"[CM#{self._instance_id}] Cursors already exist during delayed creation (cursor1={len(self.dual_cursors_1)}, cursor2={len(self.dual_cursors_2)}), aborting")
+=======
+        try:
+            # Double-check that we don't already have cursors
+            if self.dual_cursors_1 or self.dual_cursors_2:
+                logger.debug("Cursors already exist during delayed creation, aborting")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 return
                 
             # Find the first valid plot widget again
@@ -167,14 +227,22 @@ class CursorManager(QObject):
                     break
             
             if not valid_plot:
+<<<<<<< HEAD
                 logger.warning(f"[CM#{self._instance_id}] No valid plot widget found for delayed cursor creation")
+=======
+                logger.warning("No valid plot widget found for delayed cursor creation")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 return
                 
             view_range = valid_plot.getViewBox().viewRange()[0]
             
             # Check if view range is valid
             if view_range[0] >= view_range[1]:
+<<<<<<< HEAD
                 logger.warning(f"[CM#{self._instance_id}] Invalid view range for cursor creation: {view_range}")
+=======
+                logger.warning(f"Invalid view range for cursor creation: {view_range}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 return
                 
             one_third_pos = view_range[0] + (view_range[1] - view_range[0]) / 3
@@ -183,25 +251,38 @@ class CursorManager(QObject):
             # Create first cursor
             self.dual_cursors_1 = []
             self._create_dual_cursor_set(self.dual_cursors_1, one_third_pos, '#ff4444', self._sync_dual_cursors_1)
+<<<<<<< HEAD
             logger.debug(f"[CM#{self._instance_id}] Created {len(self.dual_cursors_1)} cursor1 lines at pos={one_third_pos:.2f}")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Create second cursor
             self.dual_cursors_2 = []
             self._create_dual_cursor_set(self.dual_cursors_2, two_thirds_pos, '#4444ff', self._sync_dual_cursors_2)
+<<<<<<< HEAD
             logger.debug(f"[CM#{self._instance_id}] Created {len(self.dual_cursors_2)} cursor2 lines at pos={two_thirds_pos:.2f}")
             
             logger.debug(f"[CM#{self._instance_id}] TOTAL cursors created: {len(self.dual_cursors_1) + len(self.dual_cursors_2)} (across {len(self.plot_widgets)} plots)")
+=======
+            
+            logger.debug(f"Successfully created dual cursors at positions: {one_third_pos:.2f}, {two_thirds_pos:.2f}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Emit cursor positions immediately
             self._emit_cursor_positions()
             
         except Exception as e:
+<<<<<<< HEAD
             logger.error(f"[CM#{self._instance_id}] Failed to create delayed cursors: {e}")
+=======
+            logger.error(f"Failed to create delayed cursors: {e}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             import traceback
             traceback.print_exc()
 
     def clear_all(self):
         """Remove all cursor objects from all plots."""
+<<<<<<< HEAD
         logger.debug(f"[CM#{self._instance_id}] clear_all() called - removing {len(self.dual_cursors_1)} cursor1 + {len(self.dual_cursors_2)} cursor2")
         
         # Cancel any pending cursor creation timer FIRST
@@ -218,21 +299,38 @@ class CursorManager(QObject):
                 try:
                     self.plot_widgets[i].removeItem(cursor)
                     removed_count += 1
+=======
+        # Clear dual cursors
+        for cursor in self.dual_cursors_1:
+            for plot_widget in self.plot_widgets:
+                try:
+                    plot_widget.removeItem(cursor)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 except:
                     pass
         self.dual_cursors_1.clear()
         
+<<<<<<< HEAD
         for i, cursor in enumerate(self.dual_cursors_2):
             if i < len(self.plot_widgets):
                 try:
                     self.plot_widgets[i].removeItem(cursor)
                     removed_count += 1
+=======
+        for cursor in self.dual_cursors_2:
+            for plot_widget in self.plot_widgets:
+                try:
+                    plot_widget.removeItem(cursor)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 except:
                     pass
         self.dual_cursors_2.clear()
         
+<<<<<<< HEAD
         logger.debug(f"[CM#{self._instance_id}] clear_all() completed - removed {removed_count} cursor items")
         
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     def _ensure_cursors_removed(self):
         """Ensure all cursors are completely removed from all plots."""
         logger.debug("Ensuring all cursors are removed")

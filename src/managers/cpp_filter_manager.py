@@ -4,8 +4,11 @@ Integrates C++ FilterEngine with existing Python infrastructure
 """
 
 import logging
+<<<<<<< HEAD
 import os
 import sys
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 import time
 import numpy as np
 import polars as pl
@@ -14,6 +17,7 @@ from PyQt5.QtCore import QObject, pyqtSignal as Signal
 
 logger = logging.getLogger(__name__)
 
+<<<<<<< HEAD
 # ============================================================================
 # DLL PATH FIX FOR WINDOWS + ARROW
 # Arrow DLLs are in pyarrow.libs directory, need to add to search path
@@ -45,14 +49,22 @@ def _setup_arrow_dll_path():
 # Setup DLL paths before importing C++ module
 _setup_arrow_dll_path()
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 # Try to import C++ module
 try:
     import time_graph_cpp as tgcpp
     CPP_AVAILABLE = True
+<<<<<<< HEAD
     logger.info(f"C++ module loaded successfully, Arrow available: {tgcpp.is_arrow_available()}")
 except ImportError as e:
     CPP_AVAILABLE = False
     logger.warning(f"C++ module not available for FilterManager: {e}")
+=======
+except ImportError:
+    CPP_AVAILABLE = False
+    logger.warning("C++ module not available for FilterManager")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
 
 class CppFilterCalculationWorker(QObject):
@@ -111,6 +123,7 @@ class CppFilterCalculationWorker(QObject):
                 try:
                     logger.info("[CPP WORKER] Calling _calculate_segments_cpp_streaming()")
                     segments = self._calculate_segments_cpp_streaming()
+<<<<<<< HEAD
                     method = "cpp_arrow_bridge"
                     logger.info(f"[CPP WORKER] C++ Arrow bridge returned {len(segments)} segments")
                 except Exception as e:
@@ -120,6 +133,15 @@ class CppFilterCalculationWorker(QObject):
                     self._is_running = False
                     self.error.emit(f"C++ filter failed: {e}")
                     raise
+=======
+                    method = "cpp_streaming"
+                    logger.info(f"[CPP WORKER] C++ streaming returned {len(segments)} segments")
+                except Exception as e:
+                    logger.warning(f"C++ streaming filter failed, falling back to NumPy: {e}")
+                    logger.info("[CPP WORKER] Calling _calculate_segments_numpy() as fallback")
+                    segments = self._calculate_segments_numpy()
+                    method = "numpy_fallback"
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             else:
                 logger.info("[CPP WORKER] C++ not available, using NumPy")
                 segments = self._calculate_segments_numpy()
@@ -208,6 +230,7 @@ class CppFilterCalculationWorker(QObject):
     # ===== C++ MPAI STREAMING PATH =====
     def _calculate_segments_cpp_streaming(self) -> list:
         """
+<<<<<<< HEAD
         Use C++ FilterEngine with Arrow Bridge.
         
         Yeni yaklaşım:
@@ -218,6 +241,14 @@ class CppFilterCalculationWorker(QObject):
         Bu sayede C++ MpaiReader tip uyumsuzluğu çözülür.
         """
         logger.info("[CPP STREAMING] Starting C++ Arrow Bridge filter calculation")
+=======
+        Use C++ FilterEngine.calculate_streaming on MpaiReader.
+        
+        Bu yol, veriyi diskten chunk'lar halinde okuyup boolean mask'i
+        hiç RAM'e tam olarak almadan segment hesaplar.
+        """
+        logger.info("[CPP STREAMING] Starting C++ streaming filter calculation")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         if not self.conditions or self.mpai_reader is None:
             logger.warning("[CPP STREAMING] No conditions or mpai_reader is None, returning empty")
@@ -229,16 +260,20 @@ class CppFilterCalculationWorker(QObject):
         # Convert Python conditions to C++ FilterConditions
         logger.info(f"[CPP STREAMING] Converting {len(self.conditions)} conditions to C++ format")
         cpp_conditions = self._convert_conditions_to_cpp(self.conditions)
+<<<<<<< HEAD
 
         # Store for retrieval by filter_data callback (for graph_renderer Y-filtering)
         self.cpp_conditions = cpp_conditions
         logger.info(f"[CPP STREAMING] ✅ Stored {len(cpp_conditions)} cpp_conditions for graph_renderer access")
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         if not cpp_conditions:
             logger.warning("[CPP STREAMING] No valid C++ conditions created, returning empty")
             return []
         
         logger.info(f"[CPP STREAMING] Created {len(cpp_conditions)} C++ conditions")
+<<<<<<< HEAD
         
         # =====================================================================
         # ARROW BRIDGE: Extract data from Python reader, send to C++
@@ -383,6 +418,27 @@ class CppFilterCalculationWorker(QObject):
         
         filter_engine = tgcpp.FilterEngine()
         row_count = 0  # 0 = all rows
+=======
+        logger.info(f"[CPP STREAMING] Creating FilterEngine instance")
+        filter_engine = tgcpp.FilterEngine()
+        
+        # PERFORMANCE: Limit to first 1M rows for preview (or full if < 1M)
+        total_rows = self.mpai_reader.get_row_count() if hasattr(self.mpai_reader, 'get_row_count') else 0
+        preview_limit = 1_000_000  # 1M rows for responsive UI
+        
+        logger.info(f"[CPP STREAMING] Total rows in file: {total_rows:,}")
+        
+        if total_rows > preview_limit:
+            logger.info(f"[FILTER] Large file ({total_rows:,} rows), using preview mode ({preview_limit:,} rows)")
+            row_count = preview_limit
+        else:
+            row_count = 0  # 0 = all rows
+        
+        # Start from row 0, row_count=0 => tüm satırlar
+        logger.info(f"[CPP STREAMING] Calling filter_engine.calculate_streaming()")
+        logger.info(f"[CPP STREAMING]   time_column: {self.time_column_name}")
+        logger.info(f"[CPP STREAMING]   row_count: {row_count} (0=all)")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         cpp_segments = filter_engine.calculate_streaming(
             self.mpai_reader,
@@ -392,7 +448,15 @@ class CppFilterCalculationWorker(QObject):
             row_count,
         )
         
+<<<<<<< HEAD
         segments = [(seg.start_time, seg.end_time) for seg in cpp_segments]
+=======
+        logger.info(f"[CPP STREAMING] calculate_streaming returned {len(cpp_segments)} segments")
+        
+        # Convert C++ segments to Python (start_time, end_time)
+        segments = [(seg.start_time, seg.end_time) for seg in cpp_segments]
+        logger.info(f"[CPP STREAMING] Converted to Python format: {len(segments)} segments")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         return segments
     
     def _convert_conditions_to_cpp(self, conditions: list) -> list:
@@ -406,8 +470,11 @@ class CppFilterCalculationWorker(QObject):
             param_name = condition['parameter']
             ranges = condition['ranges']
             
+<<<<<<< HEAD
             logger.info(f"[CPP CONVERT] Processing parameter: '{param_name}' with {len(ranges)} range(s)")
             
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             for range_filter in ranges:
                 cpp_cond = tgcpp.FilterCondition()
                 cpp_cond.column_name = param_name
@@ -416,13 +483,17 @@ class CppFilterCalculationWorker(QObject):
                 operator = range_filter['operator']
                 value = range_filter['value']
                 
+<<<<<<< HEAD
                 logger.info(f"[CPP CONVERT]   Range: type='{range_type}', operator='{operator}', value={value}")
                 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 # Map Python filter format to C++ FilterType
                 if range_type == 'lower':
                     if operator == '>=':
                         cpp_cond.type = tgcpp.FilterType.GREATER
                         cpp_cond.threshold = value - 1e-10  # Inclusive
+<<<<<<< HEAD
                         logger.info(f"[CPP CONVERT]   -> C++ GREATER with threshold={cpp_cond.threshold} (value-1e-10)")
                     elif operator == '>':
                         cpp_cond.type = tgcpp.FilterType.GREATER
@@ -430,11 +501,18 @@ class CppFilterCalculationWorker(QObject):
                         logger.info(f"[CPP CONVERT]   -> C++ GREATER with threshold={cpp_cond.threshold}")
                     else:
                         logger.warning(f"[CPP CONVERT]   -> SKIPPED (unknown operator)")
+=======
+                    elif operator == '>':
+                        cpp_cond.type = tgcpp.FilterType.GREATER
+                        cpp_cond.threshold = value
+                    else:
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         continue
                 elif range_type == 'upper':
                     if operator == '<=':
                         cpp_cond.type = tgcpp.FilterType.LESS
                         cpp_cond.threshold = value + 1e-10  # Inclusive
+<<<<<<< HEAD
                         logger.info(f"[CPP CONVERT]   -> C++ LESS with threshold={cpp_cond.threshold} (value+1e-10)")
                     elif operator == '<':
                         cpp_cond.type = tgcpp.FilterType.LESS
@@ -445,15 +523,29 @@ class CppFilterCalculationWorker(QObject):
                         continue
                 else:
                     logger.warning(f"[CPP CONVERT]   -> SKIPPED (unknown range type)")
+=======
+                    elif operator == '<':
+                        cpp_cond.type = tgcpp.FilterType.LESS
+                        cpp_cond.threshold = value
+                    else:
+                        continue
+                else:
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     continue
                 
                 # AND between conditions (uygulamada parametreler arası AND mantığı var)
                 cpp_cond.op = tgcpp.FilterOperator.AND
+<<<<<<< HEAD
                 logger.info(f"[CPP CONVERT]   -> Operator: AND")
                 
                 cpp_conditions.append(cpp_cond)
         
         logger.info(f"[CPP CONVERT] Total C++ conditions created: {len(cpp_conditions)}")
+=======
+                
+                cpp_conditions.append(cpp_cond)
+        
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         return cpp_conditions
     
     def _calculate_segments_numpy(self) -> list:
@@ -494,6 +586,7 @@ class CppFilterCalculationWorker(QObject):
                 continue
             
             param_data = np.asarray(self.all_signals[param_name]['y_data'])
+<<<<<<< HEAD
             
             # FIX: Shape mismatch prevention
             # Downsampled signals may have different lengths than time_data
@@ -509,6 +602,11 @@ class CppFilterCalculationWorker(QObject):
             
             # Apply all ranges (AND logic within parameter for intersection)
             # Example: Value >= 0 AND Value <= 5
+=======
+            condition_mask = np.zeros(len(param_data), dtype=bool)
+            
+            # Apply all ranges (OR logic within parameter)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             for range_filter in ranges:
                 if self.should_stop:
                     return []
@@ -534,7 +632,11 @@ class CppFilterCalculationWorker(QObject):
                 else:
                     continue
                 
+<<<<<<< HEAD
                 condition_mask &= range_mask
+=======
+                condition_mask |= range_mask
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Combine with overall mask (AND logic between parameters)
             combined_mask &= condition_mask

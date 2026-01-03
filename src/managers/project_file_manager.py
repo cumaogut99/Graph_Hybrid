@@ -172,6 +172,7 @@ class ProjectFileManager(QObject):
         
         return True
     
+<<<<<<< HEAD
     def save_directory_project(
         self,
         source_dir: str,
@@ -236,6 +237,8 @@ class ProjectFileManager(QObject):
             self.error_occurred.emit(error_msg)
             return False
     
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     def load_project(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
         Load a project from .mpai file (ZIP64 Container).
@@ -267,6 +270,7 @@ class ProjectFileManager(QObject):
             handle = self._manager.open_project(file_path)
             self._current_handle = handle
             
+<<<<<<< HEAD
             # Check if this is a directory-based container (has setup.xml)
             is_directory_container = False
             import zipfile
@@ -389,6 +393,42 @@ class ProjectFileManager(QObject):
                 logger.info(f"Project loaded successfully: {file_path}")
                 self.load_progress.emit("Proje başarıyla yüklendi!", 100)
                 self.load_completed.emit(project_data)
+=======
+            # Load data
+            self.load_progress.emit("Veri yükleniyor...", 30)
+            dataframe = self._manager.get_raw_data_polars(handle)
+            logger.info(f"Loaded: {len(dataframe)} rows, {len(dataframe.columns)} columns")
+            
+            # Get layout config
+            self.load_progress.emit("Layout yükleniyor...", 70)
+            layout_config = handle.metadata.layout_config if handle.metadata.layout_config else {}
+            
+            # Build metadata dict
+            self.load_progress.emit("Metadata yükleniyor...", 85)
+            metadata = {
+                'version': handle.manifest.format_version,
+                'format': 'zip64_container',
+                'created_at': handle.manifest.created_at,
+                'modified_at': handle.manifest.modified_at,
+                'row_count': handle.manifest.row_count,
+                'column_count': handle.manifest.column_count,
+                'time_column': handle.metadata.time_column,
+                'sampling_frequency': handle.metadata.sampling_frequency,
+                'columns': handle.metadata.columns,
+                'has_lod': len(handle.manifest.lod_files) > 0,
+            }
+            
+            project_data = {
+                'dataframe': dataframe,
+                'layout_config': layout_config,
+                'metadata': metadata,
+                'file_path': file_path,
+            }
+            
+            logger.info(f"Project loaded successfully: {file_path}")
+            self.load_progress.emit("Proje başarıyla yüklendi!", 100)
+            self.load_completed.emit(project_data)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             return project_data
             

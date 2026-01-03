@@ -7,7 +7,10 @@ Max 3 files can be open simultaneously for performance.
 
 import logging
 import os
+<<<<<<< HEAD
 import shutil
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 from typing import Dict, List, Optional, Any
 from PyQt5.QtWidgets import QTabWidget, QWidget, QMessageBox
 from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
@@ -31,7 +34,10 @@ class MultiFileManager(QObject):
     file_switched = Signal(int, int)  # new_index, old_index
     file_closed = Signal(int)  # file_index
     all_files_closed = Signal()
+<<<<<<< HEAD
     save_project_requested = Signal(int)  # file_index - triggers save dialog before close
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     
     def __init__(self, parent=None, max_files: int = 3):
         super().__init__(parent)
@@ -52,9 +58,15 @@ class MultiFileManager(QObject):
         self.file_tab_widget = QTabWidget()
         self.file_tab_widget.setTabsClosable(True)
         self.file_tab_widget.setMovable(False)
+<<<<<<< HEAD
         # Status bar yüksekliği ile uyumlu hale getirildi (26 pixel - kompakt)
         self.file_tab_widget.setMaximumHeight(26)
         self.file_tab_widget.setMinimumHeight(26)
+=======
+        # Status bar yüksekliği ile uyumlu hale getirildi (34 pixel)
+        self.file_tab_widget.setMaximumHeight(34)
+        self.file_tab_widget.setMinimumHeight(34)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # FİX: Tüm sekmelerin görünür kalmasını sağla
         tab_bar = self.file_tab_widget.tabBar()
@@ -81,6 +93,7 @@ class MultiFileManager(QObject):
                 background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                     stop: 0 #424242, stop: 1 #353535);
                 color: #b0b0b0;
+<<<<<<< HEAD
                 padding: 3px 8px;
                 margin-right: 2px;
                 margin-top: 1px;
@@ -91,6 +104,17 @@ class MultiFileManager(QObject):
                 min-width: 140px;
                 max-width: 200px;
                 font-size: 9pt;
+=======
+                padding: 6px 14px;
+                margin-right: 3px;
+                margin-top: 2px;
+                border: 1px solid #2a2a2a;
+                border-bottom: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                width: 140px;
+                font-size: 10pt;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 font-weight: 500;
             }
             QTabBar::tab:selected {
@@ -101,7 +125,11 @@ class MultiFileManager(QObject):
                 border: 1px solid #3d7ec9;
                 border-bottom: none;
                 margin-top: 0px;
+<<<<<<< HEAD
                 padding-top: 4px;
+=======
+                padding-top: 8px;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QTabBar::tab:hover:!selected {
                 background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
@@ -113,6 +141,7 @@ class MultiFileManager(QObject):
                 color: #ffffff;
             }
             QTabBar::close-button {
+<<<<<<< HEAD
                 image: url(icons/x.svg);
                 subcontrol-position: right;
                 subcontrol-origin: padding;
@@ -124,6 +153,17 @@ class MultiFileManager(QObject):
             }
             QTabBar::close-button:hover {
                 background-color: rgba(232, 17, 35, 0.8);
+=======
+                subcontrol-position: right;
+                subcontrol-origin: padding;
+                margin: 2px;
+                padding: 2px;
+                border-radius: 3px;
+            }
+            QTabBar::close-button:hover {
+                background-color: rgba(232, 17, 35, 0.8);
+                border-radius: 3px;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QTabBar::close-button:pressed {
                 background-color: rgba(241, 112, 122, 0.9);
@@ -274,6 +314,7 @@ class MultiFileManager(QObject):
         
         file_data = self.loaded_files[index]
         filename = file_data.get('filename', 'Unknown')
+<<<<<<< HEAD
         settings = file_data.get('settings', {})
         is_temp_file = settings.get('_is_temp_file', False)
         is_project_saved = file_data.get('is_project_saved', False)
@@ -298,6 +339,12 @@ class MultiFileManager(QObject):
         
         # Check for unsaved data changes (separate from project save)
         elif file_data.get('is_data_modified', False):
+=======
+        
+        # Check for unsaved changes
+        if file_data.get('is_data_modified', False):
+            from PyQt5.QtWidgets import QMessageBox
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             reply = QMessageBox.question(
                 None,
                 "Kaydedilmemiş Değişiklikler",
@@ -310,10 +357,13 @@ class MultiFileManager(QObject):
             if reply == QMessageBox.No:
                 return
         
+<<<<<<< HEAD
         # === AUTO CLEANUP TEMP FILES (no prompt) ===
         if is_temp_file:
             self._cleanup_temp_files(file_data)
         
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         # Close the file
         self.close_file(index)
     
@@ -363,6 +413,7 @@ class MultiFileManager(QObject):
     def get_active_index(self) -> int:
         """Get active file index."""
         return self.active_file_index
+<<<<<<< HEAD
     
     def _cleanup_temp_files(self, file_data: Dict[str, Any]):
         """Delete temp MPAI files for a closed file."""
@@ -388,4 +439,6 @@ class MultiFileManager(QObject):
                 logger.info(f"[CLEANUP] Deleted temp settings: {temp_settings}")
             except Exception as e:
                 logger.warning(f"[CLEANUP] Failed to delete temp settings: {e}")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 

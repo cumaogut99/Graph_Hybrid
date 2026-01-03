@@ -62,7 +62,10 @@ class GraphContainer(QWidget):
 
     def set_graph_count(self, count: int):
         """Sets the number of vertically stacked graphs (subplots)."""
+<<<<<<< HEAD
         print(f"[ZOOM] GraphContainer.set_graph_count called: tab_index={self.tab_index}, count={count}")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         logger.info(f"Setting graph count in container to: {count}")
         self.plot_manager.set_subplot_count(count)
 

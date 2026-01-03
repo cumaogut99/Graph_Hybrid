@@ -173,6 +173,7 @@ class ParametersPanelManager(QObject):
             if not hasattr(self.parent, 'signal_processor'):
                 raise ValueError("Signal processor not available")
             
+<<<<<<< HEAD
             signal_processor = self.parent.signal_processor
             
             # Check for MPAI reader first (MpaiDirectoryReader)
@@ -219,6 +220,43 @@ class ParametersPanelManager(QObject):
                 raise ValueError(f"Signal '{param_name}' missing x_data or y_data")
             
             return np.array(signal_data['x_data']), np.array(signal_data['y_data'])
+=======
+            signal_data = self.parent.signal_processor.get_signal_data(param_name)
+            if not signal_data:
+                raise ValueError(f"Signal '{param_name}' not found")
+            
+            # Check if this is MPAI data (preview mode)
+            metadata = signal_data.get('metadata', {})
+            is_mpai = metadata.get('mpai', False)
+            
+            if is_mpai:
+                # MPAI file - need to load full data for parameter calculation
+                logger.info(f"Loading full MPAI data for parameter calculation: {param_name}")
+                
+                # Get the MpaiReader from data_manager
+                if hasattr(self.parent, 'data_manager') and hasattr(self.parent.data_manager, 'raw_data'):
+                    reader = self.parent.data_manager.raw_data
+                    if hasattr(reader, 'load_column'):
+                        try:
+                            # Load complete column data
+                            full_y_data = reader.load_column(param_name)
+                            
+                            # Generate corresponding time data
+                            row_count = reader.get_row_count()
+                            # Assume 1 Hz sampling for now (TODO: get actual sample rate)
+                            full_x_data = np.arange(row_count, dtype=np.float64)
+                            
+                            logger.info(f"Loaded {len(full_y_data)} points for {param_name}")
+                            return full_x_data, full_y_data
+                        except Exception as e:
+                            logger.error(f"Failed to load full MPAI data: {e}")
+                            # Fallback to preview data
+                            logger.warning("Falling back to preview data (first 10k points)")
+                            return signal_data['x_data'], signal_data['y_data']
+            
+            # Normal data (already in memory)
+            return signal_data['x_data'], signal_data['y_data']
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # Create and show dialog
         dialog = ParameterCalculatorDialog(available_params, get_signal_data, self.panel)
@@ -234,6 +272,7 @@ class ParametersPanelManager(QObject):
         
         dialog.exec_()
     
+<<<<<<< HEAD
     def _on_parameter_created(self, param_name: str, formula: str, used_params: list):
         """
         Handle new parameter creation - STREAMING DISK-BASED calculation.
@@ -398,4 +437,25 @@ class ParametersPanelManager(QObject):
         
         from PyQt5.QtWidgets import QMessageBox
         QMessageBox.critical(self.panel, "Calculation Error", f"Failed to calculate parameter:\n{error_msg}")
+=======
+    def _on_parameter_created(self, param_name: str, x_data: np.ndarray, y_data: np.ndarray):
+        """Handle new parameter creation."""
+        logger.info(f"New parameter created: {param_name}")
+        
+        # Add to signal processor
+        if hasattr(self.parent, 'signal_processor'):
+            self.parent.signal_processor.add_signal(param_name, x_data, y_data)
+            logger.info(f"Added '{param_name}' to signal processor")
+        
+        # Add to parameter list
+        if self.parameter_list:
+            self.parameter_list.add_parameter(param_name)
+            logger.info(f"Added '{param_name}' to parameter list")
+        
+        # Update parent widget if needed
+        # Note: _on_processing_finished expects 'all_signals' parameter
+        # We don't need to call it here - parameter is already added to signal_processor
+        # The UI will update automatically when the parameter is plotted
+        logger.debug("Parameter created successfully, no need to trigger full processing refresh")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 

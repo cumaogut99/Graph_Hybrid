@@ -380,6 +380,7 @@ class TimeGraphWidget(QWidget):
                 font-weight: bold;
             }}
             QTabBar::close-button {{
+<<<<<<< HEAD
                 image: url({os.path.abspath('icons/x.svg').replace(os.sep, '/')});
                 subcontrol-position: right;
                 subcontrol-origin: padding;
@@ -394,6 +395,21 @@ class TimeGraphWidget(QWidget):
             }}
             QTabBar::close-button:pressed {{
                 background-color: rgba(241, 112, 122, 0.9);
+=======
+                /* ✅ FIX: Use absolute path for icon */
+                image: url({os.path.abspath('icons/x.svg').replace(os.sep, '/')});
+                subcontrol-position: right;
+                subcontrol-origin: padding;
+                border: none;
+                background: transparent;
+                padding: 4px;
+            }}
+            QTabBar::close-button:hover {{
+                background-color: #e81123;
+            }}
+            QTabBar::close-button:pressed {{
+                background-color: #f1707a;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }}
             QToolButton {{
                 background-color: {colors.get('surface_variant', '#3c3c3c')};
@@ -483,8 +499,11 @@ class TimeGraphWidget(QWidget):
         #     return
 
         if self.cursor_manager:
+<<<<<<< HEAD
             # CRITICAL: Call clear_all() first to cancel any pending timers and remove cursors
             self.cursor_manager.clear_all()
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             try:
                 self.cursor_manager.cursor_moved.disconnect()
                 self.cursor_manager.range_changed.disconnect()
@@ -620,6 +639,7 @@ class TimeGraphWidget(QWidget):
         # Apply limit lines BEFORE auto-ranging so they are included in the view
         self._apply_limit_lines_to_all_graphs()
         
+<<<<<<< HEAD
         # CRITICAL FIX: Only auto-range Y axis, preserve X range to prevent zoom jumping
         # when adding signals to an empty graph in multi-subplot layout
         for tab_index, container in enumerate(self.graph_containers):
@@ -668,6 +688,22 @@ class TimeGraphWidget(QWidget):
             elif is_default_range and plot_widgets:
                 after_auto = plot_widgets[0].getViewBox().viewRange()[0]
                 print(f"[REDRAW] Tab {tab_index}: after full autoRange = {after_auto}")
+=======
+        # CRITICAL: Auto-range AFTER applying settings AND limit lines to show all data
+        # This must come after limit lines are added so they are included in the range calculation
+        for tab_index, container in enumerate(self.graph_containers):
+            plot_widgets = container.plot_manager.get_plot_widgets()
+            for idx, plot_widget in enumerate(plot_widgets):
+                
+                # First enable auto-range for both axes
+                plot_widget.enableAutoRange(axis='x', enable=True)
+                plot_widget.enableAutoRange(axis='y', enable=True)
+                # Then trigger auto-range to fit all data INCLUDING limit lines
+                plot_widget.autoRange()
+                # Disable auto-range after initial fit so user can zoom/pan freely
+                plot_widget.enableAutoRange(axis='x', enable=False)
+                plot_widget.enableAutoRange(axis='y', enable=False)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 
 
         logger.debug("Auto-ranged all plots (X and Y axes) after signal redraw, settings apply, and limit lines")
@@ -1378,6 +1414,7 @@ class TimeGraphWidget(QWidget):
 
         old_name = self.tab_widget.tabText(index)
         
+<<<<<<< HEAD
         # Create styled input dialog
         dialog = QInputDialog(self)
         dialog.setWindowTitle("Sekmeyi Yeniden Adlandır")
@@ -1421,6 +1458,15 @@ class TimeGraphWidget(QWidget):
         
         ok = dialog.exec_()
         new_name = dialog.textValue()
+=======
+        new_name, ok = QInputDialog.getText(
+            self, 
+            "Sekmeyi Yeniden Adlandır", 
+            "Yeni sekme adı:", 
+            QLineEdit.Normal, 
+            old_name
+        )
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         if ok and new_name and new_name.strip():
             self.tab_widget.setTabText(index, new_name.strip())
@@ -1999,9 +2045,14 @@ Devam etmek istiyor musunuz?
                     if not hasattr(self, 'graph_renderer'):
                         logger.warning("Widget destroyed before applying filter segments")
                         return
+<<<<<<< HEAD
                     
                     # ✅ SIMPLIFIED: Just apply the segments - filter_conditions no longer needed
                     # graph_renderer now uses only time_segments which are already correctly computed
+=======
+                        
+                    # ✅ FIX: Pass target_tab_index to prevent cross-tab filter contamination
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     self._apply_calculated_segments(container, graph_index, time_segments, mode, filter_data, target_tab_index)
                     
                 except RuntimeError as e:
@@ -2066,10 +2117,15 @@ Devam etmek istiyor musunuz?
             
             # Apply filtering based on mode using graph renderer
             if mode == 'segmented':
+<<<<<<< HEAD
                 # ✅ FIX: Pass filter_conditions for NumPy Y-value filtering
                 # C++ segments give time ranges, we need to filter Y values in those ranges
                 filter_conditions = filter_data.get('conditions', [])
                 self.graph_renderer.apply_segmented_filter(container, graph_index, time_segments, target_tab_index, filter_conditions)
+=======
+                # Pass target_tab_index to ensure filter is applied to CORRECT tab!
+                self.graph_renderer.apply_segmented_filter(container, graph_index, time_segments, target_tab_index)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             else:  # concatenated
                 # ✅ FIX Concatenated Mode: Apply to ALL tabs, not just target tab!
                 # Concatenated mode değiştirir signal_processor'daki veriyi
@@ -2608,11 +2664,14 @@ Devam etmek istiyor musunuz?
         Update legend with current values.
         OPTIMIZED: Uses batch signal retrieval to avoid mutex contention.
         """
+<<<<<<< HEAD
         # OPTIMIZATION: Legend panel is currently not visible in the UI, 
         # so updating it consumes resources (67ms/frame) for no benefit.
         # Disabling updates until the panel is added to the layout.
         return
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         if self.current_cursor_position is not None:
             signal_data = {}
             
@@ -2761,8 +2820,12 @@ Devam etmek istiyor musunuz?
         
         # Signal processor connections
         self.signal_processor.processing_started.connect(self._on_processing_started)
+<<<<<<< HEAD
         # REMOVED: self.signal_processor.processing_finished.connect(self._on_processing_finished) 
         # CAUSE OF INFINITE LOOP: The worker triggers this, we don't need the processor to trigger it again recursively.
+=======
+        self.signal_processor.processing_finished.connect(self._on_processing_finished)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.signal_processor.statistics_updated.connect(self._on_statistics_updated)
     
     def _on_signal_color_changed(self, signal_name: str, new_color: str):
@@ -3172,13 +3235,17 @@ Devam etmek istiyor musunuz?
                         if 'signals' in graph_config:
                             # Mevcut sinyalleri kontrol et
                             all_signals = self.signal_processor.get_all_signals()
+<<<<<<< HEAD
                             logger.info(f"[LAYOUT] Tab {i}, Graph {plot_index}: Restoring signals {graph_config['signals']}")
                             logger.info(f"[LAYOUT] Available signals: {len(all_signals)} signals")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                             
                             for signal_name in graph_config['signals']:
                                 if signal_name in all_signals:
                                     # Sinyal verilerini signal_processor'dan al
                                     signal_data = self.signal_processor.get_signal_data(signal_name)
+<<<<<<< HEAD
                                     
                                     x_data = None
                                     y_data = None
@@ -3199,6 +3266,14 @@ Devam etmek istiyor musunuz?
                                         # Sinyali belirtilen grafiğe ekle
                                         container.add_signal(signal_name, x_data, y_data, plot_index)
                                         logger.info(f"[LAYOUT] Added signal '{signal_name}' to graph {plot_index}")
+=======
+                                    if signal_data and 'x_data' in signal_data and 'y_data' in signal_data:
+                                        x_data = signal_data['x_data']
+                                        y_data = signal_data['y_data']
+                                        
+                                        # Sinyali belirtilen grafiğe ekle
+                                        container.add_signal(signal_name, x_data, y_data, plot_index)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                                         
                                         # Signal mapping'i güncelle
                                         if i not in self.graph_signal_mapping:
@@ -3207,10 +3282,13 @@ Devam etmek istiyor musunuz?
                                             self.graph_signal_mapping[i][plot_index] = []
                                         if signal_name not in self.graph_signal_mapping[i][plot_index]:
                                             self.graph_signal_mapping[i][plot_index].append(signal_name)
+<<<<<<< HEAD
                                     else:
                                         logger.warning(f"[LAYOUT] Could not get data for signal '{signal_name}'")
                                 else:
                                     logger.warning(f"[LAYOUT] Signal '{signal_name}' not found in signal_processor")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     
                     # Bu sekme için statistics panel'i güncelle
                     if i == self.tab_widget.currentIndex():  # Sadece aktif sekme için

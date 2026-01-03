@@ -358,6 +358,7 @@ class GraphAdvancedSettingsDialog(QDialog):
         
         current_index = self.stacked_widget.currentIndex()
         
+<<<<<<< HEAD
         if current_index == 0:  # Range Filters (was 0=Parameters, but Parameters removed)
             self._show_filters_summary()
         elif current_index == 1:  # Static Limits
@@ -371,6 +372,20 @@ class GraphAdvancedSettingsDialog(QDialog):
         else:
             # Fallback
             self._show_placeholder_summary("Unknown Panel", "❓")
+=======
+        if current_index == 0:  # Parameters
+            self._show_parameters_summary()
+        elif current_index == 1:  # Range Filters
+            self._show_filters_summary()
+        elif current_index == 2:  # Static Limits
+            self._show_limits_summary()
+        elif current_index == 3:  # Basic Deviation
+            self._show_basic_deviation_summary()
+        elif current_index == 4:  # Advanced Deviation
+            self._show_placeholder_summary("Advanced Deviation", "📈")
+        elif current_index == 5:  # Advanced Filters
+            self._show_placeholder_summary("Advanced Filters", "🔧")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # Add stretch at the end
         self.summary_layout.addStretch()

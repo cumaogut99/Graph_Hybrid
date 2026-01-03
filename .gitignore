@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+# *.pyd  # C++ modülleri - kullanıcılar için gerekli
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+.history/
+*.swp
+*.swo
+*~
+
+# Build directories
+build/
+cpp/build/
+*.vcxproj
+*.vcxproj.filters
+*.sln
+cmake_install.cmake
+CMakeCache.txt
+CMakeFiles/
+
+# Compiled files
+*.o
+*.obj
+*.a
+*.lib
+# *.dll  # lib/ klasöründeki DLL'ler kullanıcılar için gerekli
+*.exp
+*.pdb
+*.ilk
+*.tlog
+*.lastbuildstate
+*.recipe
+*.iobj
+
+# Logs
+*.log
+*.txt
+!requirements.txt
+!README.md
+!CMakeLists.txt
+
+# Backup files
+*.bak
+*.backup
+*.broken_backup
+
+# PyInstaller
+*.spec
+dist/
+*.egg-info/
+
+# Test files (optional - uncomment if you want to exclude)
+# test_code/
+# test_*.py
+
+# Data files (optional - uncomment if you want to exclude large data)
+*.csv
+!cpp/benchmark_data.csv  # Test için gerekli olabilir, ama büyük
+# *.parquet
+
+# Third party (pybind11 is already in cpp/thirdparty, but exclude build artifacts)
+cpp/thirdparty/pybind11/build/
+
+# Arrow DLLs (these are large binary files - consider if you want to include them)
+# lib/*.dll
+
+# Icons (if too large, you might want to exclude)
+# icons/
+
+# OS
+.DS_Store
+Thumbs.db
+

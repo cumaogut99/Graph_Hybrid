@@ -10,16 +10,20 @@ DeweSoft-inspired approach:
 - LOD3: 100,000-step min/max aggregation
 
 Each LOD layer stores: time_min, time_max, {signal}_min, {signal}_max
+<<<<<<< HEAD
 
 Supports both:
 - Binary .tlod format (C++ LodWriter) - Preferred, zero-copy memory-mapped
 - Parquet format (PyArrow) - Fallback
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 """
 
 import logging
 import os
 from typing import Dict, List, Tuple, Optional, Callable
 import numpy as np
+<<<<<<< HEAD
 
 # Try to import C++ LOD bindings
 try:
@@ -35,6 +39,8 @@ except ImportError:
     HAS_CPP_LOD = False
     tgcpp = None
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -48,9 +54,12 @@ LOD_CONFIGS = [
     ('lod3_100k', 100_000),   # Every 100K samples
 ]
 
+<<<<<<< HEAD
 # Binary LOD configs (bucket sizes map to .tlod filenames)
 BINARY_LOD_BUCKET_SIZES = [100, 10_000, 100_000]
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
 class LodGenerator:
     """
@@ -79,8 +88,12 @@ class LodGenerator:
         self,
         time_data: np.ndarray,
         signal_data: Dict[str, np.ndarray],
+<<<<<<< HEAD
         signal_columns: List[str],
         use_binary: bool = True
+=======
+        signal_columns: List[str]
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     ) -> Dict[str, str]:
         """
         Generate all LOD levels from source data.
@@ -89,7 +102,10 @@ class LodGenerator:
             time_data: Time column array
             signal_data: Dict of signal_name -> numpy array
             signal_columns: List of signal column names
+<<<<<<< HEAD
             use_binary: If True and C++ bindings available, use binary .tlod format
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
         Returns:
             Dict of lod_name -> file_path
@@ -97,11 +113,15 @@ class LodGenerator:
         generated_files = {}
         row_count = len(time_data)
         
+<<<<<<< HEAD
         # Prefer binary format if available
         use_cpp = use_binary and HAS_CPP_LOD
         format_name = "binary .tlod" if use_cpp else "Parquet"
         
         logger.info(f"[LOD] Generating pyramid for {row_count:,} rows, {len(signal_columns)} signals ({format_name} format)")
+=======
+        logger.info(f"[LOD] Generating pyramid for {row_count:,} rows, {len(signal_columns)} signals")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         for i, (lod_name, bucket_size) in enumerate(LOD_CONFIGS):
             if row_count < bucket_size * 2:
@@ -112,6 +132,7 @@ class LodGenerator:
                 pct = 90 + int((i / len(LOD_CONFIGS)) * 8)
                 self.progress_callback(f"Generating {lod_name}...", pct)
             
+<<<<<<< HEAD
             if use_cpp:
                 file_path = self._generate_binary_lod(
                     bucket_size, time_data, signal_data, signal_columns
@@ -121,6 +142,12 @@ class LodGenerator:
                     lod_name, bucket_size,
                     time_data, signal_data, signal_columns
                 )
+=======
+            file_path = self._generate_single_lod(
+                lod_name, bucket_size,
+                time_data, signal_data, signal_columns
+            )
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             if file_path:
                 generated_files[lod_name] = file_path
@@ -128,6 +155,7 @@ class LodGenerator:
         logger.info(f"[LOD] Generated {len(generated_files)} LOD files")
         return generated_files
     
+<<<<<<< HEAD
     def _generate_binary_lod(
         self,
         bucket_size: int,
@@ -210,6 +238,8 @@ class LodGenerator:
             return None
     
     
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     def _generate_single_lod(
         self,
         lod_name: str,

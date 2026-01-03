@@ -45,7 +45,11 @@ class CsvToMpaiConverter(QObject):
     
     def __init__(self, csv_path: str, mpai_path: str, 
                  chunk_size: int = 1_000_000,
+<<<<<<< HEAD
                  compression_level: int = 0,  # TEMPORARY: Set to 0 to bypass ZSTD issues
+=======
+                 compression_level: int = 3,
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                  memory_limit_percent: float = 20.0,
                  settings: Optional[Dict[str, Any]] = None):
         super().__init__()
@@ -158,12 +162,18 @@ class CsvToMpaiConverter(QObject):
             # Success!
             self.progress.emit("Conversion complete!", 100)
             self.finished.emit(self.mpai_path)
+<<<<<<< HEAD
             return True
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
         except Exception as e:
             logger.exception("Conversion failed:")
             self.error.emit(str(e))
+<<<<<<< HEAD
             return False
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         finally:
             # Cleanup temp files
             if self.temp_dir and os.path.exists(self.temp_dir):
@@ -176,6 +186,7 @@ class CsvToMpaiConverter(QObject):
     def _check_and_fix_quote_wrapping(self):
         """
         Check if CSV has entire lines wrapped in quotes (Excel export bug).
+<<<<<<< HEAD
         Also apply header_row and start_row settings by creating a preprocessed temp file.
         This ensures consistent behavior with the import dialog preview.
         """
@@ -186,6 +197,15 @@ class CsvToMpaiConverter(QObject):
             
             # Check for quote wrapping first
             needs_quote_fix = False
+=======
+        If detected, create a cleaned temporary CSV.
+        """
+        try:
+            encoding = self.settings.get('encoding', 'utf-8')
+            needs_fix = False
+            
+            # Read first few lines to detect issue
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             with open(self.csv_path, 'r', encoding=encoding, errors='replace') as f:
                 lines_checked = 0
                 quote_wrapped_count = 0
@@ -202,6 +222,7 @@ class CsvToMpaiConverter(QObject):
                     if lines_checked >= 5: break
                 
                 if lines_checked > 0 and (quote_wrapped_count / lines_checked) > 0.5:
+<<<<<<< HEAD
                     needs_quote_fix = True
                     logger.warning("Detected quote-wrapped CSV lines. Applying auto-fix.")
             
@@ -284,6 +305,33 @@ class CsvToMpaiConverter(QObject):
             import traceback
             traceback.print_exc()
             # Continue with original file if preprocessing fails
+=======
+                    needs_fix = True
+                    logger.warning("Detected quote-wrapped CSV lines. Applying auto-fix.")
+            
+            if needs_fix:
+                # Create temp file
+                self.temp_dir = tempfile.mkdtemp()
+                temp_csv = os.path.join(self.temp_dir, "cleaned_data.csv")
+                
+                # Process line by line (memory efficient)
+                with open(self.csv_path, 'r', encoding=encoding, errors='replace') as fin, \
+                     open(temp_csv, 'w', encoding='utf-8', newline='') as fout:
+                    
+                    for line in fin:
+                        line = line.rstrip('\r\n')
+                        if line.startswith('"') and line.endswith('"') and len(line) > 1:
+                            line = line[1:-1]
+                        fout.write(line + '\n')
+                
+                # Switch to using cleaned file
+                self.working_csv_path = temp_csv
+                logger.info(f"Using cleaned temp CSV: {temp_csv}")
+                
+        except Exception as e:
+            logger.error(f"Quote fix check failed: {e}")
+            # Continue with original file if check fails
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
     def _get_cleaned_column_names(self, columns) -> Dict[str, str]:
         """Map old column names to clean ones."""
@@ -359,6 +407,7 @@ class CsvToMpaiConverter(QObject):
         time_col_name = self.settings.get('time_column')
         new_col_name = self.settings.get('new_time_column_name', 'time_generated')
         
+<<<<<<< HEAD
         # DEBUG: Log what we're looking for and what's available
         logger.info(f"[TIME TRACE] Looking for time_column='{time_col_name}' in columns: {df.columns[:5]}...")
         
@@ -382,6 +431,11 @@ class CsvToMpaiConverter(QObject):
         should_generate = create_custom or not time_col_found
         
         logger.info(f"[TIME TRACE] time_col_found={time_col_found}, should_generate={should_generate}")
+=======
+        # Scenario A: Generate Custom Time
+        # OR Scenario C: Fallback (No time column found)
+        should_generate = create_custom or (not time_col_name) or (time_col_name not in df.columns)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         if should_generate:
             sampling_freq = self.settings.get('sampling_frequency', 1000.0)
@@ -401,11 +455,15 @@ class CsvToMpaiConverter(QObject):
             # Add column
             target_name = new_col_name if create_custom else 'time'
             df = df.with_columns(pl.Series(target_name, time_arr))
+<<<<<<< HEAD
             logger.info(f"[TIME TRACE] Generated time column '{target_name}' with {n_rows} rows")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
         # Scenario B: Use/Fix Existing Time Column
         elif time_col_name in df.columns:
             # Ensure float64
+<<<<<<< HEAD
             try:
                 col = df[time_col_name]
                 logger.info(f"[TIME TRACE] Using existing time column '{time_col_name}' (dtype={col.dtype})")
@@ -466,6 +524,16 @@ class CsvToMpaiConverter(QObject):
                 logger.error(f"[TIME TRACE] Failed to process time column: {e}")
                 import traceback
                 traceback.print_exc()
+=======
+            # TODO: Improve parsing for batch streaming if needed
+            try:
+                col = df[time_col_name]
+                if col.dtype not in [pl.Float64, pl.Float32]:
+                    # Try simple cast first
+                    df = df.with_columns(col.cast(pl.Float64, strict=False).fill_null(0.0))
+            except:
+                pass # Keep as is if conversion fails
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 
         return df
 
@@ -505,6 +573,7 @@ class CsvToMpaiConverter(QObject):
     def _scan_csv(self):
         """Scan CSV file (metadata only)."""
         # Use working_csv_path (might be temp file)
+<<<<<<< HEAD
         
         # Get header and start row settings from import dialog
         header_row = self.settings.get('header_row')  # None means no header
@@ -533,6 +602,11 @@ class CsvToMpaiConverter(QObject):
             has_header=has_header,
             skip_rows=skip_rows,
             skip_rows_after_header=skip_rows_after_header,
+=======
+        lazy_frame = pl.scan_csv(
+            self.working_csv_path,
+            has_header=True,
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             try_parse_dates=True,
             ignore_errors=True,
             low_memory=True,
@@ -563,11 +637,24 @@ class CsvToMpaiConverter(QObject):
         else: return tgcpp.DataType.FLOAT64
 
     def _write_mpai_streaming(self, schema: Dict[str, Any], column_stats: Dict[str, Dict]) -> int:
+<<<<<<< HEAD
         """Write MPAI file using Python MpaiStreamWriter (Zero-Copy Format)."""
         try:
             from src.data.data_engine import MpaiStreamWriter
         except ImportError:
             raise RuntimeError("MpaiStreamWriter not found in src.data.data_engine")
+=======
+        """Write MPAI file using C++ writer with BATCHED processing."""
+        try:
+            import sys
+            # Attempt to find DLL
+            dll_paths = [os.getcwd(), os.path.join(os.getcwd(), "build", "Release")]
+            for p in dll_paths:
+                if p not in sys.path: sys.path.append(p)
+            import time_graph_cpp as tgcpp
+        except ImportError:
+            raise RuntimeError("C++ module 'time_graph_cpp' not available.")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # NOTE: We can't know exact row count beforehand easily with streaming + cleaning
         # So we write a placeholder or 0, and C++ writer handles it or we update later
@@ -578,7 +665,14 @@ class CsvToMpaiConverter(QObject):
         total_rows_input = self._count_rows(scan_lf)
         
         # Create MPAI writer
+<<<<<<< HEAD
         writer = MpaiStreamWriter(self.mpai_path)
+=======
+        writer = tgcpp.MpaiWriter(self.mpai_path, self.compression_level)
+        
+        # Write header (Use input row count, assumption: cleaning preserves row count)
+        writer.write_header(total_rows_input, len(schema), os.path.basename(self.csv_path))
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # Register Column Metadata
         column_names = list(schema.keys())
@@ -587,6 +681,7 @@ class CsvToMpaiConverter(QObject):
         _, original_schema = self._scan_csv()
         old_to_new = self._get_cleaned_column_names(original_schema.keys())
         
+<<<<<<< HEAD
         # CRITICAL: Update time_column to use cleaned/renamed column name
         if 'time_column' in self.settings and self.settings['time_column']:
             original_time_col = self.settings['time_column']
@@ -664,6 +759,31 @@ class CsvToMpaiConverter(QObject):
             has_header=has_header,
             skip_rows=skip_rows,
             skip_rows_after_header=skip_rows_after_header,
+=======
+        for col_name in column_names:
+            stats = column_stats.get(col_name, {})
+            # Default to float64 if not in original schema (generated columns)
+            col_type = schema.get(col_name, pl.Float64)
+            
+            col_metadata = tgcpp.ColumnMetadata()
+            col_metadata.name = col_name
+            col_metadata.data_type = self._map_polars_type(col_type)
+            col_metadata.unit = "" 
+            
+            # Zero stats for now
+            col_metadata.statistics.mean = 0.0
+            col_metadata.statistics.std_dev = 0.0
+            col_metadata.statistics.min = 0.0
+            col_metadata.statistics.max = 0.0
+            
+            writer.add_column_metadata(col_metadata)
+
+        # Read CSV in Batches
+        # Use working_csv_path
+        reader = pl.read_csv_batched(
+            self.working_csv_path,
+            batch_size=self.chunk_size,
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             try_parse_dates=True,
             ignore_errors=True,
             low_memory=True
@@ -691,6 +811,7 @@ class CsvToMpaiConverter(QObject):
             pct = 10 + int((rows_processed / max(total_rows_input, 1)) * 85)
             self.progress.emit(f"Writing chunk {chunk_id}... ({rows_processed:,} rows)", pct)
             
+<<<<<<< HEAD
             # Prepare Chunk Data for Writer
             chunk_data = {}
             for col_name in column_names:
@@ -713,14 +834,55 @@ class CsvToMpaiConverter(QObject):
             
             # Write Chunk
             writer.write_chunk(chunk_data)
+=======
+            # Write chunk for EACH column
+            for col_idx, col_name in enumerate(column_names):
+                try:
+                    if col_name in df_batch.columns:
+                        series = df_batch.get_column(col_name)
+                        data = series.to_numpy()
+                        
+                        # Handle NaN for C++
+                        if data.dtype.kind in 'fi':
+                             data = np.nan_to_num(data, nan=0.0)
+                        
+                        # Ensure float64
+                        if data.dtype != np.float64:
+                             data = data.astype(np.float64)
+
+                        writer.write_column_chunk(
+                            col_idx, chunk_id,
+                            data.tobytes(), len(data) * 8, len(data)
+                        )
+                    else:
+                        # Missing column (should not happen if logic is correct)
+                        # Fill with zeros
+                        zeros = np.zeros(current_batch_size, dtype=np.float64)
+                        writer.write_column_chunk(
+                            col_idx, chunk_id,
+                            zeros.tobytes(), len(zeros) * 8, len(zeros)
+                        )
+                except Exception as e:
+                    logger.error(f"Error writing chunk {chunk_id} col {col_name}: {e}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             rows_processed += current_batch_size
             chunk_id += 1
             del df_batch
             
+<<<<<<< HEAD
         # Finalize
         writer.close()
         logger.info(f"MPAI directory written: {self.mpai_path}")
+=======
+        # Write application state
+        app_state = tgcpp.ApplicationState()
+        writer.write_application_state(app_state)
+        
+        # Finalize
+        writer.finalize()
+        logger.info(f"MPAI file written: {self.mpai_path}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         return rows_processed
     
@@ -734,10 +896,17 @@ class CsvToMpaiConverter(QObject):
         try:
             from src.data.lod_generator import LodGenerator
             
+<<<<<<< HEAD
             # SKIP LOD: New format uses .red files which are generated during write
             # No need for Parquet pyramid
             logger.info("[LOD] Skipping Parquet pyramid generation (Using .red files)")
             return
+=======
+            # Skip for small files (LOD not needed)
+            if row_count < 200:
+                logger.info(f"[LOD] Skipping pyramid for small file ({row_count} rows)")
+                return
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Determine container path (same as MPAI file without extension)
             container_path = os.path.splitext(self.mpai_path)[0] + '_lod'
@@ -822,6 +991,7 @@ class CsvToMpaiConverter(QObject):
     
     def _package_to_container(self):
         """
+<<<<<<< HEAD
         Finalize conversion. 
         MpaiStreamWriter already handled file closing. 
         We rely on the directory structure, so no need to package into ZIP64.
@@ -834,6 +1004,120 @@ class CsvToMpaiConverter(QObject):
                 logger.info("Removed temporary preprocessed CSV")
             except:
                 pass
+=======
+        Package the binary MPAI file and LOD files into a ZIP64 container.
+        
+        This creates a single-file project format that includes:
+        - The raw MPAI binary data (as raw_data.parquet equivalent)
+        - All LOD pyramid files
+        - Manifest and metadata for project management
+        
+        After packaging, the original binary files are cleaned up.
+        """
+        logger.info("[CONTAINER] Packaging into ZIP64 container...")
+        
+        # Create temp directory for container assembly
+        container_temp = tempfile.mkdtemp(prefix="mpai_container_")
+        
+        try:
+            # Read the binary MPAI file into a parquet-compatible format
+            # Since C++ MPAI is a custom binary format, we need to read it and 
+            # convert to parquet for the container
+            import time_graph_cpp as tgcpp
+            reader = tgcpp.MpaiReader(self.mpai_path)
+            
+            # Read all data from the binary MPAI
+            column_names = reader.get_column_names()
+            row_count = reader.get_row_count()
+            
+            # Build columns dict for Polars DataFrame
+            columns_data = {}
+            for col_name in column_names:
+                try:
+                    col_data = reader.load_column(col_name)
+                    columns_data[col_name] = col_data
+                except Exception as e:
+                    logger.warning(f"[CONTAINER] Failed to load column {col_name}: {e}")
+                    continue
+            
+            # Create Polars DataFrame
+            if columns_data:
+                df = pl.DataFrame(columns_data)
+                
+                # Prepare metadata
+                time_col = self.settings.get('time_column', 'time')
+                if time_col not in df.columns and df.columns:
+                    time_col = df.columns[0]
+                
+                metadata = ProjectMetadata(
+                    time_column=time_col,
+                    sampling_frequency=self.settings.get('sampling_frequency', 0.0),
+                    columns=[
+                        {"name": col, "dtype": str(df[col].dtype)}
+                        for col in df.columns
+                    ],
+                )
+                
+                # Collect LOD files if they exist
+                lod_files = {}
+                lod_dir = os.path.splitext(self.mpai_path)[0] + '_lod'
+                if os.path.isdir(lod_dir):
+                    for lod_file in os.listdir(lod_dir):
+                        if lod_file.endswith('.parquet'):
+                            lod_path = os.path.join(lod_dir, lod_file)
+                            with open(lod_path, 'rb') as f:
+                                lod_files[lod_file] = f.read()
+                    logger.info(f"[CONTAINER] Found {len(lod_files)} LOD files")
+                
+                # Create ZIP64 container
+                manager = MpaiProjectManager()
+                
+                # Determine container path (same name, but will replace binary)
+                container_path = self.mpai_path + ".container.tmp"
+                
+                handle = manager.create_project(
+                    df, 
+                    container_path,
+                    metadata=metadata,
+                    lod_files=lod_files if lod_files else None,
+                )
+                
+                # Replace original binary with container
+                original_binary = self.mpai_path
+                backup_path = self.mpai_path + ".binary"
+                
+                # Keep backup of binary format (optional, remove in production)
+                shutil.move(original_binary, backup_path)
+                shutil.move(container_path, original_binary)
+                
+                # Cleanup LOD directory (now inside container)
+                if os.path.isdir(lod_dir):
+                    shutil.rmtree(lod_dir)
+                
+                # Cleanup binary backup
+                if os.path.exists(backup_path):
+                    os.remove(backup_path)
+                
+                # Update metrics
+                self.metrics['container_format'] = 'zip64'
+                self.metrics['mpai_size_mb'] = os.path.getsize(self.mpai_path) / (1024 * 1024)
+                
+                logger.info(f"[CONTAINER] Created ZIP64 container: {self.mpai_path}")
+                logger.info(f"[CONTAINER] Final size: {self.metrics['mpai_size_mb']:.2f} MB")
+            else:
+                logger.warning("[CONTAINER] No column data available, skipping container packaging")
+                
+        except ImportError:
+            logger.warning("[CONTAINER] time_graph_cpp not available, skipping container packaging")
+        except Exception as e:
+            logger.error(f"[CONTAINER] Packaging failed: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            # Cleanup temp directory
+            if os.path.exists(container_temp):
+                shutil.rmtree(container_temp, ignore_errors=True)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
     def get_metrics(self) -> Dict[str, Any]:
         return self.metrics.copy()

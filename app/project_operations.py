@@ -64,11 +64,15 @@ class ProjectOperations:
         
         # Get dataframe from data manager
         dataframe = active_widget.data_manager.get_data()
+<<<<<<< HEAD
         
         # CHECK: If we have a reader, we don't strictly need the dataframe populated in RAM
         has_reader = hasattr(active_widget.data_manager, 'reader') and active_widget.data_manager.reader is not None
         
         if (dataframe is None or (hasattr(dataframe, 'height') and dataframe.height == 0)) and not has_reader:
+=======
+        if dataframe is None or (hasattr(dataframe, 'height') and dataframe.height == 0):
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             QMessageBox.warning(
                 self.main_window,
                 "Proje Kaydedilemedi",
@@ -82,9 +86,13 @@ class ProjectOperations:
             file_data = self.main_window.file_manager.get_file_data(active_file_index)
             
             # Add calculated parameters to dataframe
+<<<<<<< HEAD
             # CRITICAL FIX: Only attempt this if we successfully loaded a DataFrame into RAM
             # For large datasets (MpaiDirectoryReader), dataframe might be a Reader object or None
             if isinstance(dataframe, pl.DataFrame) and hasattr(active_widget, 'signal_processor'):
+=======
+            if hasattr(active_widget, 'signal_processor'):
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 all_signals = active_widget.signal_processor.get_all_signals()
                 if all_signals:
                     # Get time column
@@ -155,6 +163,7 @@ class ProjectOperations:
             }
             
             # Save project
+<<<<<<< HEAD
             # DETECT DATA SOURCE TYPE
             # DETECT DATA SOURCE TYPE
             # Check if raw_data is an MpaiDirectoryReader (not a DataFrame)
@@ -232,6 +241,14 @@ class ProjectOperations:
                     layout_config,
                     metadata
                 )
+=======
+            success = self.main_window.project_manager.save_project(
+                file_path,
+                dataframe,
+                layout_config,
+                metadata
+            )
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Hide loading overlay
             if hasattr(self.main_window, 'loading_manager') and self.main_window.loading_manager:
@@ -324,6 +341,7 @@ class ProjectOperations:
                 )
                 return False
             
+<<<<<<< HEAD
             # Extract data - handle both DataFrame and Reader-based projects
             is_directory_based = project_data.get('is_directory_based', False)
             
@@ -337,12 +355,20 @@ class ProjectOperations:
                 data_source = dataframe
                 reader = None
                 
+=======
+            # Extract data
+            dataframe = project_data['dataframe']
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             layout_config = project_data['layout_config']
             metadata = project_data['metadata']
             
             # Get filename from metadata
             original_filename = metadata.get('custom', {}).get('original_file', os.path.basename(file_path))
+<<<<<<< HEAD
             time_column = metadata.get('time_column', 'time')
+=======
+            time_column = metadata.get('custom', {}).get('time_column', 'time')
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Check if file is already open
             file_manager = self.main_window.file_manager
@@ -371,12 +397,20 @@ class ProjectOperations:
             file_metadata = {
                 'file_path': file_path,
                 'filename': original_filename,
+<<<<<<< HEAD
                 'df': data_source,  # Store reader or dataframe
                 'time_column': time_column,
                 'widget': None,
                 'is_data_modified': False,
                 'is_project_file': True,
                 'is_directory_based': is_directory_based
+=======
+                'df': dataframe,
+                'time_column': time_column,
+                'widget': None,
+                'is_data_modified': False,
+                'is_project_file': True
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             
             file_index = file_manager.add_file(file_metadata)
@@ -412,6 +446,7 @@ class ProjectOperations:
             else:
                 logger.info("No layout config to apply (binary MPAI format)")
             
+<<<<<<< HEAD
             # ✅ FIXED: Register calculated parameters AFTER data loading completes
             # The signal_processor.clear_all_data() is called during update_data(),
             # so we must register calc params after that completes.
@@ -496,6 +531,8 @@ class ProjectOperations:
 
 
             
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             # Switch to new widget
             self.main_window.widget_container_manager.switch_to_file_widget(file_index)
             

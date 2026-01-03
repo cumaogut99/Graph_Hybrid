@@ -184,7 +184,10 @@ double MpaiWriter::get_compression_ratio() const {
 void MpaiWriter::write_data_metadata() {
   // Write column count
   uint32_t column_count = static_cast<uint32_t>(data_metadata_.columns.size());
+<<<<<<< HEAD
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
   file_.write(reinterpret_cast<const char *>(&column_count),
               sizeof(column_count));
   current_offset_ += sizeof(column_count);

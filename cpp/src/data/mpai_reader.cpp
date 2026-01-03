@@ -9,9 +9,15 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+<<<<<<< HEAD
 #include <stdexcept>
 
 
+=======
+#include <iostream> // For DEBUG_MPAI_LOADING output
+#include <stdexcept>
+
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 // Platform-specific includes
 #ifdef _WIN32
 #define NOMINMAX
@@ -514,11 +520,18 @@ void MpaiReader::load_header() {
 void MpaiReader::load_data_metadata() {
   // Open file for reading metadata
   std::ifstream file(filename_, std::ios::binary);
+<<<<<<< HEAD
 
   file.seekg(header_.data_metadata_offset);
 
   // Read column count
   uint32_t column_count = 0;
+=======
+  file.seekg(header_.data_metadata_offset);
+
+  // Read column count
+  uint32_t column_count;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
   file.read(reinterpret_cast<char *>(&column_count), sizeof(column_count));
 
   data_metadata_.columns.resize(column_count);

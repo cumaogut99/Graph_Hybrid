@@ -119,6 +119,7 @@ class StatisticsPanel(QWidget):
         
         panel = QFrame()
         panel.setFrameStyle(QFrame.StyledPanel | QFrame.Raised)
+<<<<<<< HEAD
         panel.setFixedHeight(28)  # Slightly smaller
         panel.setStyleSheet("""
             QFrame {
@@ -127,24 +128,47 @@ class StatisticsPanel(QWidget):
                 border-radius: 6px;
                 margin: 0px;
                 padding: 0px;
+=======
+        panel.setFixedHeight(45)  # Increased height for better readability
+        panel.setStyleSheet("""
+            QFrame {
+                background-color: rgba(0, 0, 0, 0.3);
+                border: 2px solid rgba(74, 144, 226, 0.5);
+                border-radius: 8px;
+                margin: 1px;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
         """)
         
         layout = QHBoxLayout(panel)
+<<<<<<< HEAD
         layout.setContentsMargins(4, 0, 4, 0)  # No top/bottom margins
         layout.setSpacing(6)  # Compact spacing
+=======
+        layout.setContentsMargins(8, 4, 8, 4)  # Reduced padding
+        layout.setSpacing(12)  # Slightly reduced spacing
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # T1 (Cursor 1)
         self.cursor1_time_label = QLabel("T1: --")
         self.cursor1_time_label.setStyleSheet(f"""
             QLabel {{
                 color: {text_color};
+<<<<<<< HEAD
                 font-size: 10px;
                 font-weight: 600;
                 padding: 2px 5px;
                 border-radius: 3px;
                 background-color: rgba(74, 144, 226, 0.15);
                 min-height: 14px;
+=======
+                font-size: 13px;
+                font-weight: 600;
+                padding: 6px 10px;
+                border-radius: 4px;
+                background-color: rgba(74, 144, 226, 0.15);
+                min-height: 20px;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }}
         """)
         layout.addWidget(self.cursor1_time_label)
@@ -154,12 +178,21 @@ class StatisticsPanel(QWidget):
         self.cursor2_time_label.setStyleSheet(f"""
             QLabel {{
                 color: {text_color};
+<<<<<<< HEAD
                 font-size: 10px;
                 font-weight: 600;
                 padding: 2px 5px;
                 border-radius: 3px;
                 background-color: rgba(226, 74, 144, 0.15);
                 min-height: 14px;
+=======
+                font-size: 13px;
+                font-weight: 600;
+                padding: 6px 10px;
+                border-radius: 4px;
+                background-color: rgba(226, 74, 144, 0.15);
+                min-height: 20px;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }}
         """)
         layout.addWidget(self.cursor2_time_label)
@@ -169,12 +202,21 @@ class StatisticsPanel(QWidget):
         self.delta_time_label.setStyleSheet(f"""
             QLabel {{
                 color: {text_color};
+<<<<<<< HEAD
                 font-size: 10px;
                 font-weight: 600;
                 padding: 2px 5px;
                 border-radius: 3px;
                 background-color: rgba(144, 226, 74, 0.15);
                 min-height: 14px;
+=======
+                font-size: 13px;
+                font-weight: 600;
+                padding: 6px 10px;
+                border-radius: 4px;
+                background-color: rgba(144, 226, 74, 0.15);
+                min-height: 20px;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }}
         """)
         layout.addWidget(self.delta_time_label)
@@ -184,12 +226,21 @@ class StatisticsPanel(QWidget):
         self.frequency_label.setStyleSheet(f"""
             QLabel {{
                 color: {text_color};
+<<<<<<< HEAD
                 font-size: 10px;
                 font-weight: 600;
                 padding: 2px 5px;
                 border-radius: 3px;
                 background-color: rgba(226, 144, 74, 0.15);
                 min-height: 14px;
+=======
+                font-size: 13px;
+                font-weight: 600;
+                padding: 6px 10px;
+                border-radius: 4px;
+                background-color: rgba(226, 144, 74, 0.15);
+                min-height: 20px;
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }}
         """)
         layout.addWidget(self.frequency_label)

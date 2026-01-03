@@ -85,11 +85,28 @@ else()
     message(STATUS "Using system pybind11: ${pybind11_VERSION}")
 endif()
 
+<<<<<<< HEAD
 # ZSTD (DISABLED - using raw binary format like DeweSoft)
 # DeweSoft does not compress signal data in real-time.
 # We follow the same approach: binary format is compact enough (10x smaller than CSV)
 set(ZSTD_FOUND FALSE)
 message(STATUS "ZSTD: DISABLED (using raw binary format)")
+=======
+# ZSTD (for MPAI compression)
+find_package(ZSTD QUIET)
+if(NOT ZSTD_FOUND)
+    message(STATUS "ZSTD not found, will try to find library manually")
+    find_library(ZSTD_LIBRARY NAMES zstd libzstd)
+    if(ZSTD_LIBRARY)
+        message(STATUS "Found ZSTD library: ${ZSTD_LIBRARY}")
+        set(ZSTD_FOUND TRUE)
+    else()
+        message(WARNING "ZSTD not found - MPAI format will be disabled")
+        message(WARNING "Install ZSTD: pip install zstandard (includes C library)")
+        set(ZSTD_FOUND FALSE)
+    endif()
+endif()
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
 # Apache Arrow (for Hybrid MPAI+Arrow compute)
 find_package(Arrow QUIET)
@@ -152,8 +169,11 @@ set(DATA_SOURCES
     src/data/mpai_writer.cpp
     src/data/mpai_reader.cpp
     src/data/metadata_builder.cpp
+<<<<<<< HEAD
     src/data/lod_reader.cpp
     src/data/lod_writer.cpp
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 )
 
 # Processing module
@@ -222,8 +242,20 @@ if(OpenMP_CXX_FOUND)
     target_compile_definitions(time_graph_cpp PRIVATE HAVE_OPENMP=1)
 endif()
 
+<<<<<<< HEAD
 # ZSTD linking - DISABLED
 # No compression used, following DeweSoft approach
+=======
+# ZSTD linking
+if(ZSTD_FOUND)
+    if(TARGET zstd::libzstd_static OR TARGET zstd::libzstd_shared)
+        target_link_libraries(time_graph_cpp PRIVATE zstd::libzstd_static)
+    else()
+        target_link_libraries(time_graph_cpp PRIVATE ${ZSTD_LIBRARY})
+    endif()
+    target_compile_definitions(time_graph_cpp PRIVATE HAVE_ZSTD=1)
+endif()
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
 # Arrow linking
 if(HAVE_ARROW)

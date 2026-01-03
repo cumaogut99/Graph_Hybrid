@@ -8,11 +8,17 @@ Refactored to comply with ARROW_MIGRATION_ANALYSIS.md architecture.
 import logging
 import os
 import time
+<<<<<<< HEAD
 import hashlib
 import tempfile
 from PyQt5.QtCore import QObject, pyqtSignal as Signal
 
 from src.data.csv_to_mpai_converter import CsvToMpaiConverter
+=======
+from PyQt5.QtCore import QObject, pyqtSignal as Signal
+
+from src.data.csv_to_mpai_converter import convert_csv_to_mpai
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +41,7 @@ class DataLoader(QObject):
         super().__init__()
         self.settings = settings
         self._datetime_converted = False # Tracked during conversion now
+<<<<<<< HEAD
         self.converter = None # Active converter instance
 
     def cancel(self):
@@ -42,6 +49,8 @@ class DataLoader(QObject):
         if self.converter:
             logger.info("Cancelling active converter...")
             self.converter.cancel()
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
     def run(self):
         """Start the data loading process."""
@@ -53,6 +62,7 @@ class DataLoader(QObject):
             if self.settings.get('create_custom_time', False):
                 time_column = self.settings.get('new_time_column_name', 'time_generated')
             else:
+<<<<<<< HEAD
                 requested_time_col = self.settings.get('time_column', 'time')
                 
                 # Verify if this column actually exists in the reader
@@ -75,6 +85,9 @@ class DataLoader(QObject):
                         # Fallback to first column or default
                         logger.warning(f"Time column '{requested_time_col}' not found in file. Columns: {actual_columns[:5]}...")
                         time_column = requested_time_col # Pass it through, SignalProcessor handles missing
+=======
+                time_column = self.settings.get('time_column', 'time')
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 
             self.finished.emit(reader, time_column)
             
@@ -106,6 +119,7 @@ class DataLoader(QObject):
         raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
 
     def _load_csv_as_mpai(self, file_path):
+<<<<<<< HEAD
         """Convert CSV to MPAI and load it. MPAI files are stored in temp directory."""
         try:
             # === TEMP DIRECTORY SETUP ===
@@ -134,10 +148,19 @@ class DataLoader(QObject):
             
             # Check for existing valid cache
             should_regenerate = False
+=======
+        """Convert CSV to MPAI and load it."""
+        try:
+            base, _ = os.path.splitext(file_path)
+            mpai_path = base + '.mpai'
+            
+            # Check for existing valid cache
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             if os.path.exists(mpai_path):
                 # Simple check: if MPAI is newer than CSV, use it
                 # Also verify the MPAI file is not corrupted by checking size
                 if os.path.getmtime(mpai_path) > os.path.getmtime(file_path):
+<<<<<<< HEAD
                     mpai_size = os.path.getsize(mpai_path) if os.path.isfile(mpai_path) else sum(
                         os.path.getsize(os.path.join(mpai_path, f)) 
                         for f in os.listdir(mpai_path) if os.path.isfile(os.path.join(mpai_path, f))
@@ -183,12 +206,30 @@ class DataLoader(QObject):
             # Perform Conversion
             logger.info(f"Converting CSV to MPAI: {file_path}")
             self.progress.emit("Converting CSV to MPAI for better performance", 0)
+=======
+                    mpai_size = os.path.getsize(mpai_path)
+                    csv_size = os.path.getsize(file_path)
+                    # MPAI should be at least 10% of CSV size (compression)
+                    # If too small, it's likely corrupted
+                    if mpai_size > csv_size * 0.05:
+                        logger.info(f"Using valid cached MPAI: {mpai_path} ({mpai_size/1024/1024:.1f} MB)")
+                        self.progress.emit("Önbellek yükleniyor...", 10)
+                        return self._load_mpai(mpai_path)
+                    else:
+                        logger.warning(f"Cached MPAI seems corrupted (too small), regenerating...")
+                        os.remove(mpai_path)
+            
+            # Perform Conversion
+            logger.info(f"Converting CSV to MPAI: {file_path}")
+            self.progress.emit("Veri optimize ediliyor (MPAI Dönüşümü)...", 0)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             def _progress_cb(msg: str, pct: int):
                 # Relay conversion progress
                 self.progress.emit(msg, pct)
             
             # Pass all settings (time creation, etc.) to converter
+<<<<<<< HEAD
             # Use class directly to keep reference
             self.converter = CsvToMpaiConverter(
                 file_path, 
@@ -245,12 +286,23 @@ class DataLoader(QObject):
                 logger.warning(f"Failed to save settings marker: {e}")
             
             self.progress.emit("Conversion complete, opening file...", 98)
+=======
+            convert_csv_to_mpai(
+                file_path, 
+                mpai_path, 
+                progress_callback=_progress_cb,
+                settings=self.settings
+            )
+            
+            self.progress.emit("Dönüşüm tamamlandı, dosya açılıyor...", 98)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return self._load_mpai(mpai_path)
             
         except Exception as e:
             raise ValueError(f"CSV işlenemedi: {e}")
 
     def _load_mpai(self, file_path):
+<<<<<<< HEAD
         """Load MPAI file using appropriate reader (Directory-based or C++ Legacy)."""
         try:
             # Check if it's the new Directory-based MPAI
@@ -262,6 +314,10 @@ class DataLoader(QObject):
                 return reader
 
             # Fallback to C++ Legacy Reader (ZIP64) for files
+=======
+        """Load MPAI file using C++ reader."""
+        try:
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             # Import C++ module
             import sys
             # Attempt to find DLL
@@ -272,6 +328,7 @@ class DataLoader(QObject):
             import time_graph_cpp
             
             reader = time_graph_cpp.MpaiReader(file_path)
+<<<<<<< HEAD
             logger.info(f"Legacy MPAI loaded: {file_path} ({reader.get_row_count()} rows)")
             return reader
             
@@ -279,5 +336,12 @@ class DataLoader(QObject):
             if "time_graph_cpp" in str(e):
                  raise ValueError("Eski format için C++ motoru (time_graph_cpp) yüklenemedi. DLL eksik olabilir.")
             raise ValueError(f"MPAI okuyucu yüklenemedi: {e}")
+=======
+            logger.info(f"MPAI loaded: {file_path} ({reader.get_row_count()} rows)")
+            return reader
+            
+        except ImportError:
+            raise ValueError("C++ motoru (time_graph_cpp) yüklenemedi. DLL eksik olabilir.")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         except Exception as e:
             raise ValueError(f"MPAI okuma hatası: {e}")

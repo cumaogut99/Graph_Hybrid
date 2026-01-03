@@ -40,11 +40,14 @@ class DataOperations:
         self.load_threads = []
         self.save_thread = None
         self.load_worker = None
+<<<<<<< HEAD
         self.is_loading_cancelled = False  # Flag to prevent callbacks after cancel
         
         # Connect to loading manager cancel signal
         if hasattr(main_window, 'loading_manager'):
             main_window.loading_manager.cancel_requested.connect(self._on_cancel_loading)
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
     def open_file_dialog(self):
         """
@@ -70,7 +73,41 @@ class DataOperations:
         )
         
         if file_path:
+<<<<<<< HEAD
 
+=======
+            # Dosya boyutunu kontrol et (bilgilendirme amaçlı)
+            try:
+                file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                # 25 MB limiti kaldırıldı - C++ engine büyük dosyaları destekliyor
+                if file_size_mb > 5000:  # 5 GB üzeri için uyarı
+                    reply = QMessageBox.question(
+                        self.main_window,
+                        "Çok Büyük Dosya",
+                        f"Seçilen dosya çok büyük ({file_size_mb:.1f} MB / {file_size_mb/1024:.1f} GB).\n\n"
+                        f"Yükleme uzun sürebilir ve çok fazla RAM kullanabilir.\n"
+                        f"Devam etmek istiyor musunuz?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return False
+                elif file_size_mb > 1000:  # 1 GB üzeri için bilgilendirme
+                    QMessageBox.information(
+                        self.main_window,
+                        "Büyük Dosya",
+                        f"Büyük dosya yükleniyor ({file_size_mb:.1f} MB).\n\n"
+                        f"C++ hızlandırma motoru kullanılacak.\n"
+                        f"Yükleme birkaç dakika sürebilir."
+                    )
+            except Exception as e:
+                logger.error(f"Dosya boyutu kontrol edilirken hata: {e}")
+                QMessageBox.critical(
+                    self.main_window,
+                    "Dosya Hatası",
+                    f"Dosya bilgileri alınamadı:\n{str(e)}"
+                )
+                return False
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Gelişmiş import dialog'unu aç
             import_dialog = DataImportDialog(file_path, self.main_window)
@@ -99,6 +136,7 @@ class DataOperations:
             filename = os.path.basename(file_path)
             
             # Start loading operation
+<<<<<<< HEAD
             # Reset cancellation flag for new load
             self.is_loading_cancelled = False
             logger.info(f"[LOAD] Starting new file load: {filename}")
@@ -107,6 +145,10 @@ class DataOperations:
                 # Add subtitle for CSV files to indicate conversion
                 subtitle = "Converting CSV to MPAI for better performance" if file_path.endswith('.csv') else ""
                 self.main_window.loading_manager.start_operation("file_loading", f"Loading {filename}...", subtitle=subtitle)
+=======
+            if hasattr(self.main_window, 'loading_manager'):
+                self.main_window.loading_manager.start_operation("file_loading", f"Loading {filename}...")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             if hasattr(self.main_window, 'status_bar'):
                 self.main_window.status_bar.set_operation("File Loading", 0)
             
@@ -167,7 +209,11 @@ class DataOperations:
             
             if hasattr(self.main_window, 'loading_manager'):
                 load_worker.progress.connect(
+<<<<<<< HEAD
                     lambda msg, pct: self.main_window.loading_manager.update_operation("file_loading", msg, pct)
+=======
+                    lambda msg: self.main_window.loading_manager.update_operation("file_loading", msg)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 )
             
             # Cleanup
@@ -255,6 +301,7 @@ class DataOperations:
                             thread.wait(1000)
                 except RuntimeError as e:
                     logger.debug(f"Thread already deleted: {e}")
+<<<<<<< HEAD
     
     def _on_cancel_loading(self):
         """Handle cancel request from loading manager."""
@@ -332,4 +379,6 @@ class DataOperations:
             
         except Exception as e:
             logger.error(f"[CANCEL] Error during cancel: {e}")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 

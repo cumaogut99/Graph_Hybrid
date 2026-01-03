@@ -7,16 +7,23 @@ Handles signal processing operations including:
 - Statistical calculations
 - Signal filtering and conditioning
 - Performance-optimized data operations
+<<<<<<< HEAD
 - LOD (Level of Detail) auto-selection for spike-safe rendering
 """
 
 import logging
 import os
+=======
+"""
+
+import logging
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import polars as pl
 from PyQt5.QtCore import QObject, pyqtSignal as Signal, QThread, QMutex, QMutexLocker
 
+<<<<<<< HEAD
 # Try to import C++ LOD bindings
 try:
     import sys
@@ -30,6 +37,8 @@ except ImportError:
     HAS_CPP_LOD = False
     tgcpp = None
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 logger = logging.getLogger(__name__)
 
 class SignalProcessor(QObject):
@@ -41,7 +50,10 @@ class SignalProcessor(QObject):
     - Threaded processing for large datasets
     - Caching for repeated calculations
     - Optimized statistical computations
+<<<<<<< HEAD
     - LOD auto-selection for spike-safe visualization
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     """
     
     # Signals
@@ -63,10 +75,13 @@ class SignalProcessor(QObject):
         self.current_mpai_path = None  # ✅ Store MPAI file path for LOD lookup
         self.numpy_cache = {}  # Column name -> numpy array cache
         
+<<<<<<< HEAD
         # LOD cache for spike-safe rendering
         self.lod_readers = {}  # bucket_size -> LodReader instance
         self.lod_container_path = None  # Path to LOD container directory
         
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         # Processing parameters
         self.normalization_method = "peak"  # peak, rms, minmax
         self.statistics_window_size = 1000  # Rolling statistics window
@@ -131,6 +146,7 @@ class SignalProcessor(QObject):
                 row_count = df.get_row_count()
                 
                 # Determine time column
+<<<<<<< HEAD
                 # Debug: Log incoming time_column and available columns
                 logger.info(f"[MPAI DEBUG] Requested time_column: '{time_column}'")
                 logger.info(f"[MPAI DEBUG] Available columns: {columns}")
@@ -171,6 +187,18 @@ class SignalProcessor(QObject):
                     if not time_column:
                         time_column = columns[0] if columns else "time"
                         logger.warning(f"[MPAI DEBUG] No time column found, using first column: '{time_column}'")
+=======
+                if not time_column:
+                    # Try to find "time" in columns
+                    for col in columns:
+                        if 'time' in col.lower() or col == columns[0]:
+                            time_column = col
+                            break
+                
+                if not time_column:
+                    logger.warning("No time column found in MPAI, using first column")
+                    time_column = columns[0] if columns else "time"
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 
                 self.time_column_name = time_column
                 
@@ -182,6 +210,7 @@ class SignalProcessor(QObject):
                 
                 # Get time range (load only 2 values!)
                 try:
+<<<<<<< HEAD
                     # DEBUG: Log the actual call and result
                     logger.info(f"[MMAP DEBUG] Calling load_column_slice('{time_column}', 0, 1)")
                     first_slice = df.load_column_slice(time_column, 0, 1)
@@ -190,6 +219,10 @@ class SignalProcessor(QObject):
                     logger.info(f"[MMAP DEBUG] Calling load_column_slice('{time_column}', {max(0, row_count - 1)}, 1)")
                     last_slice = df.load_column_slice(time_column, max(0, row_count - 1), 1)
                     logger.info(f"[MMAP DEBUG] last_slice = {last_slice}, type={type(last_slice)}")
+=======
+                    first_slice = df.load_column_slice(time_column, 0, 1)
+                    last_slice = df.load_column_slice(time_column, max(0, row_count - 1), 1)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     
                     if len(first_slice) > 0 and len(last_slice) > 0:
                         t_first = float(first_slice[0])
@@ -197,13 +230,19 @@ class SignalProcessor(QObject):
                         full_time_range = (t_first, t_last)
                         logger.info(f"[MMAP] Time range: {t_first:.2f} to {t_last:.2f}")
                     else:
+<<<<<<< HEAD
                         logger.warning(f"[MMAP DEBUG] Empty slices returned! first_len={len(first_slice)}, last_len={len(last_slice)}")
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         t_first, t_last = 0.0, float(row_count - 1)
                         full_time_range = (t_first, t_last)
                 except Exception as e:
                     logger.error(f"Error getting time range: {e}")
+<<<<<<< HEAD
                     import traceback
                     traceback.print_exc()
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     t_first, t_last = 0.0, float(row_count - 1)
                     full_time_range = (t_first, t_last)
                 
@@ -542,6 +581,7 @@ class SignalProcessor(QObject):
             
             logger.debug(f"Removed signal '{name}'")
     
+<<<<<<< HEAD
     def _register_calculated_param(self, name: str, reader):
         """
         Register a disk-based calculated parameter for memory-mapped access.
@@ -603,6 +643,12 @@ class SignalProcessor(QObject):
                     return {}
             
             return data.copy() if data else {}
+=======
+    def get_signal_data(self, name: str) -> Optional[Dict]:
+        """Get signal data safely."""
+        with QMutexLocker(self.mutex):
+            return self.signal_data.get(name, {}).copy()
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     
     def get_all_signals(self) -> Dict[str, Dict]:
         """
@@ -724,6 +770,7 @@ class SignalProcessor(QObject):
             col_name = signal_info['column_name']
             time_col = signal_info['time_column']
             row_count = signal_info['row_count']
+<<<<<<< HEAD
 
             # ✅ OPTIMIZED PATH: Use MpaiDirectoryReader's built-in get_render_data
             # This utilizes the .red (Reduced) files for instant access
@@ -765,6 +812,14 @@ class SignalProcessor(QObject):
             # Optimization: Don't bucketize if we have e.g. 5000 rows and want 4000 points
             if row_count <= target_points * 4:
                 logger.debug(f"[DOWNSAMPLE] Small dataset ({row_count} rows), loading all")
+=======
+            
+            logger.info(f"[DOWNSAMPLE] Streaming {row_count:,} rows → {target_points} points for '{signal_name}'")
+            
+            # If dataset is small, return full data
+            if row_count <= target_points:
+                logger.debug(f"[DOWNSAMPLE] Small dataset, loading all {row_count} rows")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 x_data = np.array(reader.load_column_slice(time_col, 0, row_count), dtype=np.float64)
                 y_data = np.array(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
                 return {'x_data': x_data, 'y_data': y_data}
@@ -1115,9 +1170,17 @@ class SignalProcessor(QObject):
                 is_mpai = metadata.get('mpai', False)
                 is_memory_mapped = metadata.get('memory_mapped', False)
                 
+<<<<<<< HEAD
                 # ========== MEMORY-MAPPED MPAI: Use C++ FastStatsCalculator OR MpaiDirectoryReader ==========
                 if is_memory_mapped:
                     try:
+=======
+                # ========== MEMORY-MAPPED MPAI: Use C++ FastStatsCalculator (O(1) with binary search) ==========
+                if is_memory_mapped:
+                    try:
+                        import time_graph_cpp
+                        
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         # Get reader and column info from signal_info
                         reader = signal_info.get('mpai_reader')
                         col_name = signal_info.get('column_name', name)
@@ -1127,6 +1190,7 @@ class SignalProcessor(QObject):
                             logger.error(f"[STATS] Memory-mapped signal '{name}' has no mpai_reader")
                             continue
                         
+<<<<<<< HEAD
                         # 1. NEW: Check if this is the Python MpaiDirectoryReader (has get_statistics_snapshot)
                         if hasattr(reader, 'get_statistics_snapshot') and hasattr(reader, 'name_to_id'):
                             # Use the new Directory Reader API
@@ -1174,6 +1238,8 @@ class SignalProcessor(QObject):
                         # 2. LEGACY C++: Use time_graph_cpp
                         import time_graph_cpp
                         
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         if time_range is not None:
                             start_time, end_time = time_range
                             # ✅ PERFORMANCE FIX: Use FastStatsCalculator instead of streaming
@@ -1617,6 +1683,7 @@ class SignalProcessor(QObject):
                             col = col_names[i]
                             if col in batch_results:
                                 results[name] = batch_results[col]
+<<<<<<< HEAD
                     elif hasattr(reader, 'get_cursor_value') and hasattr(reader, 'name_to_id'):
                         # Python MpaiDirectoryReader optimization
                         # It doesn't have batch iterator yet, but get_cursor_value is O(1)
@@ -1627,6 +1694,8 @@ class SignalProcessor(QObject):
                                 ch_id = reader.name_to_id[col]
                                 val = reader.get_cursor_value(ch_id, timestamp)
                                 results[name] = val
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     else:
                         # Fallback if C++ method missing (old pyd)
                         # We must release lock to call get_signal_at_time? 
@@ -2176,6 +2245,7 @@ class SignalProcessor(QObject):
                     y_out.append(y_slice[min_idx])
         
         return np.array(x_out), np.array(y_out)
+<<<<<<< HEAD
     
     # ==========================================================================
     # LOD (Level of Detail) Support for Spike-Safe Visualization
@@ -2286,3 +2356,5 @@ class SignalProcessor(QObject):
                 pass
         self.lod_readers.clear()
 
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b

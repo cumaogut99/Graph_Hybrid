@@ -356,7 +356,14 @@ class ToolbarManager(QObject):
         open_action.triggered.connect(self.file_open_requested.emit)
         file_menu.addAction(open_action)
         
+<<<<<<< HEAD
 
+=======
+        save_action = QAction("💾 Save Data", self)
+        save_action.setShortcut("Ctrl+S")
+        save_action.triggered.connect(self.file_save_requested.emit)
+        file_menu.addAction(save_action)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
         file_menu.addSeparator()
 

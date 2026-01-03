@@ -403,6 +403,7 @@ class GraphRenderer:
         self.clear_all_deviation_lines()
         logger.info("GraphRenderer cleanup completed")
     
+<<<<<<< HEAD
     def apply_segmented_filter(self, container, graph_index: int, time_segments: List[Tuple[float, float]], tab_index: int = 0, filter_conditions: list = None):
         """Apply segmented display filter - show matching segments with gaps.
         
@@ -422,6 +423,13 @@ class GraphRenderer:
         logger.info(f"[SEGMENTED] Graph index: {graph_index}, Tab index: {tab_index}")
         logger.info(f"[SEGMENTED] Time segments: {len(time_segments)} segments")
         logger.info(f"[SEGMENTED] Filter conditions: {filter_conditions}")
+=======
+    def apply_segmented_filter(self, container, graph_index: int, time_segments: List[Tuple[float, float]], tab_index: int = 0):
+        """Apply segmented display filter - show matching segments with gaps."""
+        logger.debug(f"[SEGMENTED DEBUG] Starting segmented filter application")
+        logger.debug(f"[SEGMENTED DEBUG] Graph index: {graph_index}, Tab index: {tab_index}")
+        logger.debug(f"[SEGMENTED DEBUG] Time segments: {len(time_segments)} segments")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # Get visible signals for the CORRECT tab!
         visible_signals = self._get_visible_signals_for_graph(tab_index, graph_index)
@@ -431,20 +439,39 @@ class GraphRenderer:
             all_signals = self.signal_processor.get_all_signals()
             visible_signals = list(all_signals.keys())
         
+<<<<<<< HEAD
         logger.debug(f"[SEGMENTED] Target tab: {tab_index}, Visible signals: {visible_signals}")
         
         if not visible_signals:
             logger.warning(f"[SEGMENTED] No visible signals for graph {graph_index}")
+=======
+        logger.debug(f"[SEGMENTED DEBUG] Target tab: {tab_index}")
+        logger.debug(f"[SEGMENTED DEBUG] Visible signals: {visible_signals}")
+        
+        if not visible_signals:
+            logger.warning(f"[SEGMENTED DEBUG] No visible signals for graph {graph_index}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return
         
         # Get plot widget and clear it
         plot_widgets = container.plot_manager.get_plot_widgets()
+<<<<<<< HEAD
         
         if graph_index < len(plot_widgets):
             plot_widget = plot_widgets[graph_index]
             plot_widget.clear()
         else:
             logger.warning(f"[SEGMENTED] Graph index {graph_index} out of range, available plots: {len(plot_widgets)}")
+=======
+        logger.debug(f"[SEGMENTED DEBUG] Available plot widgets: {len(plot_widgets)}")
+        
+        if graph_index < len(plot_widgets):
+            plot_widget = plot_widgets[graph_index]
+            logger.debug(f"[SEGMENTED DEBUG] Clearing plot widget {graph_index}")
+            plot_widget.clear()
+        else:
+            logger.warning(f"[SEGMENTED DEBUG] Graph index {graph_index} out of range, available plots: {len(plot_widgets)}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return
         
         # Get all signals data
@@ -452,10 +479,17 @@ class GraphRenderer:
         
         # Process each visible signal
         for signal_name in visible_signals:
+<<<<<<< HEAD
             logger.info(f"[SEGMENTED] Processing signal: {signal_name}")
             
             if signal_name not in all_signals:
                 logger.warning(f"[SEGMENTED] Signal {signal_name} not found in all_signals")
+=======
+            logger.info(f"[SEGMENTED DEBUG] Processing signal: {signal_name}")
+            
+            if signal_name not in all_signals:
+                logger.warning(f"[SEGMENTED DEBUG] Signal {signal_name} not found in all_signals")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 continue
             
             full_x_data = np.array(all_signals[signal_name]['x_data'])
@@ -466,7 +500,14 @@ class GraphRenderer:
             metadata = all_signals[signal_name].get("metadata", {})
             full_count = metadata.get("full_count", len(full_x_data))
 
+<<<<<<< HEAD
             logger.info(f"[SEGMENTED] Signal '{signal_name}': preview={len(full_x_data)} pts, full={full_count} pts")
+=======
+            limits_config = self._get_limits_configuration(graph_index)
+            limits = limits_config.get(signal_name) if limits_config else None
+
+            logger.info(f"[SEGMENTED DEBUG] Signal data length (preview): {len(full_x_data)}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Create optimized segmented data with proper NaN handling
             segmented_x = []
@@ -478,6 +519,7 @@ class GraphRenderer:
             
             for i, (segment_start, segment_end) in enumerate(sorted_segments):
                 try:
+<<<<<<< HEAD
                     segment_x = None
                     segment_y = None
                     
@@ -492,10 +534,23 @@ class GraphRenderer:
                         start_time_meta = metadata.get("start_time", 0.0)
                         end_time_meta = metadata.get("end_time", 10.0)  # ✅ FIX: Better default
                         
+=======
+                    if metadata.get("mpai") and hasattr(raw_df, "load_column_slice") and time_col:
+                        # Estimate sample rate from metadata or time range (avoid preview data dependence)
+                        sample_rate = 1.0
+                        start_time_meta = metadata.get("start_time", 0.0)
+                        end_time_meta = metadata.get("end_time", 1.0)
+                        
+                        # Calculate sample rate from full count and duration
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         duration = max(end_time_meta - start_time_meta, 1e-9)
                         if full_count > 1:
                              sample_rate = (full_count - 1) / duration
                         
+<<<<<<< HEAD
+=======
+                        # Fallback: load first and last time points from disk if metadata unreliable
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         if sample_rate == 1.0 and hasattr(raw_df, "load_column_slice"):
                              try:
                                  t_start = raw_df.load_column_slice(time_col, 0, 1)[0]
@@ -503,6 +558,7 @@ class GraphRenderer:
                                  duration = max(t_end - t_start, 1e-9)
                                  sample_rate = (full_count - 1) / duration
                              except Exception:
+<<<<<<< HEAD
                                  pass
 
                         start_row = max(0, int((segment_start - start_time_meta) * sample_rate))
@@ -516,6 +572,26 @@ class GraphRenderer:
                         # For proper filtering, C++ path is required
                         
                         # Optional: Apply smart downsampling ONLY if segment is too large (>1M points)
+=======
+                                 pass # Keep default or existing sample_rate
+
+                        start_row = max(0, int((segment_start - start_time_meta) * sample_rate))
+                        end_row = min(full_count, int((segment_end - start_time_meta) * sample_rate))
+                        
+                        # Safety alignment with time column search if needed (more precise but slower):
+                        # For now, linear mapping is fast and usually sufficient for segmented view.
+                        
+                        row_count = max(1, end_row - start_row)
+
+                        # ✅ FIX: NO downsampling for segmented filter!
+                        # Segmented filter shows filtered segments - user expects FULL data
+                        # Downsampling here causes 10k point limitation bug
+                        segment_x = np.array(raw_df.load_column_slice(time_col, int(start_row), int(row_count)), dtype=np.float64)
+                        segment_y = np.array(raw_df.load_column_slice(signal_name, int(start_row), int(row_count)), dtype=np.float64)
+                        
+                        # Optional: Apply smart downsampling ONLY if segment is too large (>1M points)
+                        # This prevents UI freeze with massive segments
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         max_segment_points = 1_000_000
                         if len(segment_x) > max_segment_points:
                             logger.warning(f"[SEGMENTED] Segment too large ({len(segment_x)} points), downsampling to {max_segment_points}")
@@ -566,6 +642,7 @@ class GraphRenderer:
                             segment_y = full_y_data[segment_indices]
                     
                     if len(segment_x) > 0:
+<<<<<<< HEAD
                         # ✅ CRITICAL: Apply Y-value filter using NumPy mask
                         # C++ calculate_streaming returns time ranges where SOME points pass
                         # We must filter to show ONLY points that actually match the condition
@@ -605,6 +682,17 @@ class GraphRenderer:
                             segmented_x.extend(segment_x)
                             segmented_y.extend(segment_y)
                             segments_found += 1
+=======
+                        # ✅ DEBUG: Log segment details
+                        logger.info(f"[SEGMENTED DEBUG] Segment {i+1}/{len(sorted_segments)}: loaded {len(segment_x)} points (time range: {segment_start:.2f}-{segment_end:.2f})")
+                        
+                        if segments_found > 0:
+                            segmented_x.append(np.nan)
+                            segmented_y.append(np.nan)
+                        segmented_x.extend(segment_x)
+                        segmented_y.extend(segment_y)
+                        segments_found += 1
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 except Exception as e:
                     logger.warning(f"[SEGMENTED DEBUG] Segment load failed for {signal_name}: {e}")
                     continue
@@ -637,6 +725,7 @@ class GraphRenderer:
                     autoDownsample=False
                 )
                 plot_widget.addItem(plot_item)
+<<<<<<< HEAD
 
                 logger.info(f"[SEGMENTED DEBUG] Signal {signal_name}: plotted {segments_found} segments as optimized PlotDataItem")
             else:
@@ -746,6 +835,50 @@ class GraphRenderer:
                     segment_y = full_y_data[mask]
                     logger.warning(f"[CONCATENATED] Using preview data fallback: {len(segment_x)} points (may be downsampled)")
 
+=======
+                
+                logger.info(f"[SEGMENTED DEBUG] Signal {signal_name}: plotted {segments_found} segments as optimized PlotDataItem")
+            else:
+                logger.warning(f"[SEGMENTED DEBUG] No valid segments found for signal {signal_name}")
+                    
+        logger.info(f"Segmented filter applied successfully to graph {graph_index}")
+        
+        # Apply limit lines if available
+        self._apply_limit_lines(plot_widget, graph_index, visible_signals)
+        
+        # ✅ FIX Problem #8: Auto-range view after filter to show all data
+        logger.debug(f"[VIEW FIX] Auto-ranging plot {graph_index} after segmented filter")
+        plot_widget.enableAutoRange(axis='x', enable=True)
+        plot_widget.enableAutoRange(axis='y', enable=True)
+        plot_widget.autoRange()
+        plot_widget.enableAutoRange(axis='x', enable=False)
+        plot_widget.enableAutoRange(axis='y', enable=False)
+    
+    def apply_concatenated_filter(self, container, time_segments: List[Tuple[float, float]]):
+        """Apply concatenated display filter - create continuous timeline from filtered segments."""
+        logger.info(f"[CONCATENATED DEBUG] Starting concatenated filter application")
+        logger.info(f"[CONCATENATED DEBUG] Time segments: {len(time_segments)} segments")
+        
+        # Get all signals data
+        all_signals = self.signal_processor.get_all_signals()
+        
+        # Create concatenated time and value arrays with continuous timeline
+        concatenated_data = {}
+        
+        for signal_name, signal_data in all_signals.items():
+            full_x_data = np.array(signal_data['x_data'])
+            full_y_data = np.array(signal_data['y_data'])
+            
+            concat_x = []
+            concat_y = []
+            current_time_offset = 0.0
+            
+            for i, (segment_start, segment_end) in enumerate(time_segments):
+                mask = (full_x_data >= segment_start) & (full_x_data <= segment_end)
+                segment_x = full_x_data[mask]
+                segment_y = full_y_data[mask]
+                
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 if len(segment_x) > 0:
                     # Create continuous timeline by adjusting time values
                     if i == 0:
@@ -755,6 +888,7 @@ class GraphRenderer:
                     else:
                         # Subsequent segments continue from where previous ended
                         segment_duration = segment_x[-1] - segment_x[0] if len(segment_x) > 1 else 0
+<<<<<<< HEAD
                         adjusted_x = np.linspace(current_time_offset,
                                                current_time_offset + segment_duration,
                                                len(segment_x))
@@ -763,11 +897,22 @@ class GraphRenderer:
                     concat_x.extend(adjusted_x)
                     concat_y.extend(segment_y)
 
+=======
+                        adjusted_x = np.linspace(current_time_offset, 
+                                               current_time_offset + segment_duration, 
+                                               len(segment_x))
+                        current_time_offset = adjusted_x[-1] if len(adjusted_x) > 0 else current_time_offset
+                    
+                    concat_x.extend(adjusted_x)
+                    concat_y.extend(segment_y)
+            
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             if concat_x:
                 concatenated_data[signal_name] = {
                     'time': np.array(concat_x),
                     'values': np.array(concat_y)
                 }
+<<<<<<< HEAD
                 logger.info(f"[CONCATENATED FIX] Signal '{signal_name}': {len(concat_x)} total points, "
                            f"time range: {concat_x[0]:.3f} - {concat_x[-1]:.3f}")
 
@@ -779,10 +924,24 @@ class GraphRenderer:
         # container.plot_manager.redraw_all_plots() yeterli değil - sadece repaint yapıyor
 
         logger.info(f"[CONCATENATED FIX] Concatenated filter applied successfully - continuous timeline created")
+=======
+                logger.debug(f"[CONCATENATED DEBUG] Signal '{signal_name}': {len(concat_x)} points, "
+                           f"time range: {concat_x[0]:.3f} - {concat_x[-1]:.3f}")
+        
+        # Update signal processor with concatenated data
+        self.signal_processor.set_filtered_data(concatenated_data)
+        logger.info(f"[CONCATENATED DEBUG] Updated signal processor with concatenated data")
+        
+        # NOT: Grafik redraw'ı TimeGraphWidget._redraw_all_signals() tarafından yapılacak
+        # container.plot_manager.redraw_all_plots() yeterli değil - sadece repaint yapıyor
+        
+        logger.info(f"Concatenated filter applied successfully - continuous timeline created")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     
     def clear_filters(self, container, graph_index: int):
         """Clear all filters and restore original data display."""
         logger.info(f"[CLEAR DEBUG] Clearing filters for graph {graph_index}")
+<<<<<<< HEAD
 
         try:
             # ✅ CRITICAL FIX: Re-enable LOD engine when clearing filter
@@ -805,6 +964,23 @@ class GraphRenderer:
             # Apply limit lines to all plots
             self._apply_limit_lines_to_all_plots(container)
 
+=======
+        
+        try:
+            # Restore original data in signal processor (important for concatenated display)
+            self.signal_processor.restore_original_data()
+            logger.info(f"[CLEAR DEBUG] Restored original data in signal processor")
+            
+            # Clear all plots and redraw with original data
+            container.plot_manager.clear_all_signals()
+            
+            # Trigger redraw of all graphs with original data
+            container.plot_manager.redraw_all_plots()
+            
+            # Apply limit lines to all plots
+            self._apply_limit_lines_to_all_plots(container)
+            
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             logger.info(f"[CLEAR DEBUG] Successfully cleared filters and restored original data")
                 
         except Exception as e:
@@ -1002,6 +1178,7 @@ class GraphRenderer:
             logger.info(f"  min={warning_min}, max={warning_max}")
             
             try:
+<<<<<<< HEAD
                 # =====================================================
                 # ARROW BRIDGE: Load data from Python reader, pass to C++
                 # This avoids the type mismatch (Python MpaiDirectoryReader vs C++ MpaiReader)
@@ -1036,6 +1213,19 @@ class GraphRenderer:
                     time_data, 
                     warning_min,
                     warning_max
+=======
+                # Let C++ handle the entire file with its internal 1M-row chunking
+                # This avoids double-chunking issues and is optimized for SIMD
+                logger.info(f"[LIMIT_VIOLATION] Starting C++ streaming calculation...")
+                
+                result = engine.calculate_violations_streaming(
+                    reader,
+                    signal_name,
+                    time_col_name,
+                    warning_min,
+                    warning_max
+                    # start_row=0, row_count=0 (defaults) => process entire file
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 )
                 
                 logger.info(f"[LIMIT_VIOLATION] C++ calculation completed successfully")
@@ -1045,11 +1235,16 @@ class GraphRenderer:
                     logger.info(f"⚠ [LIMIT_VIOLATION] Found {len(result.violations)} violation segments in {signal_name}")
                     logger.info(f"  Total violation points: {result.total_violation_points}/{result.total_data_points}")
                     
+<<<<<<< HEAD
                     # Draw segments - need to pass arrays for drawing since we have them
                     self._draw_violation_segments_from_arrays(
                         plot_widget, graph_index, signal_name, result, 
                         time_data, signal_data
                     )
+=======
+                    # Draw segments in batches to keep UI responsive
+                    self._draw_cpp_violation_segments(plot_widget, graph_index, signal_name, result, reader, time_col_name)
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 else:
                     logger.info(f"✓ [LIMIT_VIOLATION] No violations found in {signal_name}")
                     
@@ -1178,6 +1373,7 @@ class GraphRenderer:
         except Exception as e:
             logger.error(f"[LIMIT_VIOLATION] Error drawing C++ violations for {signal_name}: {e}", exc_info=True)
     
+<<<<<<< HEAD
     def _draw_violation_segments_from_arrays(self, plot_widget, graph_index: int, signal_name: str, 
                                               cpp_result, time_data: np.ndarray, signal_data: np.ndarray):
         """Draw violation segments using pre-loaded arrays (Arrow bridge version)."""
@@ -1224,6 +1420,8 @@ class GraphRenderer:
         except Exception as e:
             logger.error(f"[LIMIT_VIOLATION] Error drawing violations from arrays for {signal_name}: {e}", exc_info=True)
     
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     def _draw_violation_segments(self, plot_widget, graph_index: int, signal_name: str, 
                                  violations: list, x_data: np.ndarray, y_data: np.ndarray):
         """DEPRECATED: Python fallback - no longer used."""

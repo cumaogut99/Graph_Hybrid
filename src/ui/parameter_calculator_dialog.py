@@ -31,11 +31,15 @@ class ParameterCalculatorDialog(QDialog):
     """
     
     # Signal emitted when a new parameter is created
+<<<<<<< HEAD
     # NEW: Emits formula for streaming disk-based calculation instead of data arrays
     parameter_created = pyqtSignal(str, str, list)  # name, formula, used_params
     
     # Legacy signal for small datasets (RAM-based fallback)
     parameter_created_legacy = pyqtSignal(str, np.ndarray, np.ndarray)  # name, x_data, y_data
+=======
+    parameter_created = pyqtSignal(str, np.ndarray, np.ndarray)  # name, x_data, y_data
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     
     def __init__(self, available_parameters: List[str], signal_data_getter, parent=None):
         """
@@ -447,7 +451,11 @@ class ParameterCalculatorDialog(QDialog):
         self.formula_input.setFocus()
     
     def _preview_calculation(self):
+<<<<<<< HEAD
         """Preview the calculation result using SAMPLED data (memory efficient)."""
+=======
+        """Preview the calculation result."""
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         formula = self.formula_input.toPlainText().strip()
         if not formula:
             self.preview_label.setText("⚠️ Please enter a formula.")
@@ -456,6 +464,7 @@ class ParameterCalculatorDialog(QDialog):
             return
         
         try:
+<<<<<<< HEAD
             # ✅ MEMORY OPT: Only load parameters that are used in the formula
             used_params = [p for p in self.available_parameters if p in formula]
             if not used_params:
@@ -489,6 +498,16 @@ class ParameterCalculatorDialog(QDialog):
                             self.time_data = x_data
                     
                     param_data[param] = y_sampled
+=======
+            # Get parameter data
+            param_data = {}
+            for param in self.available_parameters:
+                try:
+                    x_data, y_data = self.signal_data_getter(param)
+                    if self.time_data is None:
+                        self.time_data = x_data.copy()
+                    param_data[param] = y_data
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 except Exception as e:
                     logger.warning(f"Could not get data for parameter '{param}': {e}")
                     continue
@@ -499,10 +518,13 @@ class ParameterCalculatorDialog(QDialog):
                 self.preview_label.show()
                 return
             
+<<<<<<< HEAD
             # Check for streaming-incompatible formulas
             from src.data.streaming_param_worker import detect_streaming_incompatible
             incompatible = detect_streaming_incompatible(formula)
             
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             # Create safe evaluation environment
             safe_dict = {
                 'np': np,
@@ -510,25 +532,43 @@ class ParameterCalculatorDialog(QDialog):
             }
             safe_dict.update(param_data)
             
+<<<<<<< HEAD
             # Evaluate formula on sampled data
+=======
+            # Evaluate formula
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             result = eval(formula, safe_dict)
             
             if isinstance(result, np.ndarray):
                 result_array = result
             else:
                 # Scalar result - create array
+<<<<<<< HEAD
                 first_data = next(iter(param_data.values()))
                 result_array = np.full(len(first_data), result, dtype=np.float64)
             
             # Show preview
             preview_text = f"✅ Formula valid! (Preview from {len(result_array)} samples)\n"
+=======
+                if self.time_data is not None:
+                    result_array = np.full_like(self.time_data, result)
+                else:
+                    result_array = np.array([result])
+            
+            # Show preview
+            preview_text = f"✅ Calculation successful!\n"
+            preview_text += f"Result shape: {result_array.shape}\n"
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             preview_text += f"Min: {np.nanmin(result_array):.4f}\n"
             preview_text += f"Max: {np.nanmax(result_array):.4f}\n"
             preview_text += f"Mean: {np.nanmean(result_array):.4f}"
             
+<<<<<<< HEAD
             if incompatible:
                 preview_text += f"\n⚠️ Warning: {', '.join(incompatible)} may not work correctly with streaming"
             
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             self.preview_label.setText(preview_text)
             self.preview_label.setStyleSheet(self.preview_label.styleSheet().replace("#ff0000", "#00ff00").replace("#ffaa00", "#00ff00"))
             self.preview_label.show()
@@ -541,7 +581,11 @@ class ParameterCalculatorDialog(QDialog):
             logger.error(f"Preview calculation error: {e}", exc_info=True)
     
     def _create_parameter(self):
+<<<<<<< HEAD
         """Create the new parameter using streaming disk-based calculation."""
+=======
+        """Create the new parameter."""
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         param_name = self.name_input.text().strip()
         formula = self.formula_input.toPlainText().strip()
         
@@ -554,6 +598,7 @@ class ParameterCalculatorDialog(QDialog):
             QMessageBox.warning(self, "Invalid Formula", "Please enter a formula.")
             return
         
+<<<<<<< HEAD
         # Sanitize parameter name (remove special chars except underscore)
         import re
         clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', param_name)
@@ -567,6 +612,8 @@ class ParameterCalculatorDialog(QDialog):
                 return
             param_name = clean_name
         
+=======
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         # Check if parameter name already exists
         if param_name in self.available_parameters:
             reply = QMessageBox.question(
@@ -578,6 +625,7 @@ class ParameterCalculatorDialog(QDialog):
                 return
         
         try:
+<<<<<<< HEAD
             # ✅ STREAMING: Find used parameters without loading data
             used_params = [p for p in self.available_parameters if p in formula]
             if not used_params:
@@ -613,6 +661,60 @@ class ParameterCalculatorDialog(QDialog):
             msg.setIcon(QMessageBox.Information)
             msg.setWindowTitle("Calculation Started")
             msg.setText(f"Parameter '{param_name}' calculation started.\n\nThis will run in the background.")
+=======
+            # Get parameter data
+            param_data = {}
+            for param in self.available_parameters:
+                try:
+                    x_data, y_data = self.signal_data_getter(param)
+                    if self.time_data is None:
+                        self.time_data = x_data.copy()
+                    param_data[param] = y_data
+                except Exception as e:
+                    logger.warning(f"Could not get data for parameter '{param}': {e}")
+                    continue
+            
+            if not param_data:
+                QMessageBox.critical(self, "Error", "No parameter data available.")
+                return
+            
+            # Create safe evaluation environment
+            safe_dict = {
+                'np': np,
+                '__builtins__': {},
+            }
+            safe_dict.update(param_data)
+            
+            # Evaluate formula
+            result = eval(formula, safe_dict)
+            
+            if isinstance(result, np.ndarray):
+                result_array = result
+            else:
+                # Scalar result - create array
+                if self.time_data is not None:
+                    result_array = np.full_like(self.time_data, result)
+                else:
+                    result_array = np.array([result])
+            
+            # Ensure time_data is set
+            if self.time_data is None:
+                # Try to get time data from first parameter
+                try:
+                    x_data, _ = self.signal_data_getter(self.available_parameters[0])
+                    self.time_data = x_data.copy()
+                except:
+                    # Create default time array
+                    self.time_data = np.arange(len(result_array))
+            
+            # Emit signal with new parameter
+            self.parameter_created.emit(param_name, self.time_data, result_array)
+            
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Information)
+            msg.setWindowTitle("Success")
+            msg.setText(f"Parameter '{param_name}' created successfully!")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             msg.setStyleSheet("""
                 QMessageBox {
                     background-color: #1e1e1e;
@@ -637,6 +739,10 @@ class ParameterCalculatorDialog(QDialog):
             self.accept()
             
         except Exception as e:
+<<<<<<< HEAD
             QMessageBox.critical(self, "Error", f"Failed to start calculation:\n{str(e)}")
+=======
+            QMessageBox.critical(self, "Error", f"Failed to create parameter:\n{str(e)}")
+>>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             logger.error(f"Create parameter error: {e}", exc_info=True)
 
