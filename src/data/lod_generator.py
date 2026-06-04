@@ -10,37 +10,20 @@ DeweSoft-inspired approach:
 - LOD3: 100,000-step min/max aggregation
 
 Each LOD layer stores: time_min, time_max, {signal}_min, {signal}_max
-<<<<<<< HEAD
 
 Supports both:
 - Binary .tlod format (C++ LodWriter) - Preferred, zero-copy memory-mapped
 - Parquet format (PyArrow) - Fallback
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 """
 
 import logging
 import os
 from typing import Dict, List, Tuple, Optional, Callable
 import numpy as np
-<<<<<<< HEAD
 
-# Try to import C++ LOD bindings
-try:
-    import pyarrow
-    import sys
-    # Add build path for time_graph_cpp
-    build_path = os.path.join(os.path.dirname(__file__), '..', '..', 'cpp', 'build', 'Release')
-    if os.path.exists(build_path) and build_path not in sys.path:
-        sys.path.insert(0, build_path)
-    import time_graph_cpp as tgcpp
-    HAS_CPP_LOD = hasattr(tgcpp, 'LodWriter') and hasattr(tgcpp, 'LodReader')
-except ImportError:
-    HAS_CPP_LOD = False
-    tgcpp = None
+HAS_CPP_LOD = False  # Pure Python/Parquet implementation
+tgcpp = None
 
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 import pyarrow as pa
 import pyarrow.parquet as pq
 
@@ -54,12 +37,9 @@ LOD_CONFIGS = [
     ('lod3_100k', 100_000),   # Every 100K samples
 ]
 
-<<<<<<< HEAD
 # Binary LOD configs (bucket sizes map to .tlod filenames)
 BINARY_LOD_BUCKET_SIZES = [100, 10_000, 100_000]
 
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
 class LodGenerator:
     """
@@ -88,12 +68,8 @@ class LodGenerator:
         self,
         time_data: np.ndarray,
         signal_data: Dict[str, np.ndarray],
-<<<<<<< HEAD
         signal_columns: List[str],
         use_binary: bool = True
-=======
-        signal_columns: List[str]
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     ) -> Dict[str, str]:
         """
         Generate all LOD levels from source data.
@@ -102,10 +78,7 @@ class LodGenerator:
             time_data: Time column array
             signal_data: Dict of signal_name -> numpy array
             signal_columns: List of signal column names
-<<<<<<< HEAD
             use_binary: If True and C++ bindings available, use binary .tlod format
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
         Returns:
             Dict of lod_name -> file_path
@@ -113,15 +86,11 @@ class LodGenerator:
         generated_files = {}
         row_count = len(time_data)
         
-<<<<<<< HEAD
         # Prefer binary format if available
         use_cpp = use_binary and HAS_CPP_LOD
         format_name = "binary .tlod" if use_cpp else "Parquet"
         
         logger.info(f"[LOD] Generating pyramid for {row_count:,} rows, {len(signal_columns)} signals ({format_name} format)")
-=======
-        logger.info(f"[LOD] Generating pyramid for {row_count:,} rows, {len(signal_columns)} signals")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         for i, (lod_name, bucket_size) in enumerate(LOD_CONFIGS):
             if row_count < bucket_size * 2:
@@ -132,7 +101,6 @@ class LodGenerator:
                 pct = 90 + int((i / len(LOD_CONFIGS)) * 8)
                 self.progress_callback(f"Generating {lod_name}...", pct)
             
-<<<<<<< HEAD
             if use_cpp:
                 file_path = self._generate_binary_lod(
                     bucket_size, time_data, signal_data, signal_columns
@@ -142,12 +110,6 @@ class LodGenerator:
                     lod_name, bucket_size,
                     time_data, signal_data, signal_columns
                 )
-=======
-            file_path = self._generate_single_lod(
-                lod_name, bucket_size,
-                time_data, signal_data, signal_columns
-            )
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             if file_path:
                 generated_files[lod_name] = file_path
@@ -155,7 +117,6 @@ class LodGenerator:
         logger.info(f"[LOD] Generated {len(generated_files)} LOD files")
         return generated_files
     
-<<<<<<< HEAD
     def _generate_binary_lod(
         self,
         bucket_size: int,
@@ -168,78 +129,10 @@ class LodGenerator:
         
         This is the preferred method - produces spike-safe, memory-mapped files.
         """
-        if not HAS_CPP_LOD:
-            logger.warning("[LOD] C++ bindings not available, falling back to Parquet")
-            return None
-            
-        try:
-            import time
-            start_time = time.perf_counter()
-            
-            row_count = len(time_data)
-            num_buckets = (row_count + bucket_size - 1) // bucket_size
-            
-            # Get output filename from C++ helper
-            filename = tgcpp.get_lod_filename(bucket_size)
-            output_path = os.path.join(self.container_path, filename)
-            
-            logger.info(f"[LOD] Binary LOD: {row_count:,} rows → {num_buckets} buckets (bucket_size={bucket_size})")
-            
-            # Create writer
-            writer = tgcpp.LodWriter()
-            if not writer.create(output_path, bucket_size, signal_columns, row_count):
-                logger.error(f"[LOD] Failed to create binary LOD file: {output_path}")
-                return None
-            
-            # Process each bucket
-            for bucket_idx in range(num_buckets):
-                start_row = bucket_idx * bucket_size
-                end_row = min((bucket_idx + 1) * bucket_size, row_count)
-                
-                # Time range
-                time_bucket = time_data[start_row:end_row]
-                time_min = float(np.min(time_bucket))
-                time_max = float(np.max(time_bucket))
-                
-                # Signal min/max for each column
-                signal_min = []
-                signal_max = []
-                
-                for col in signal_columns:
-                    if col in signal_data:
-                        signal_bucket = signal_data[col][start_row:end_row]
-                        signal_min.append(float(np.nanmin(signal_bucket)))
-                        signal_max.append(float(np.nanmax(signal_bucket)))
-                    else:
-                        signal_min.append(0.0)
-                        signal_max.append(0.0)
-                
-                # Write bucket to binary file
-                if not writer.write_bucket(time_min, time_max, signal_min, signal_max):
-                    logger.error(f"[LOD] Failed to write bucket {bucket_idx}")
-                    return None
-            
-            # Finalize
-            if not writer.finalize():
-                logger.error(f"[LOD] Failed to finalize binary LOD file")
-                return None
-            
-            elapsed = time.perf_counter() - start_time
-            file_size_mb = os.path.getsize(output_path) / (1024 * 1024)
-            
-            logger.info(f"[LOD] Binary LOD: {num_buckets} buckets, {file_size_mb:.2f} MB in {elapsed:.2f}s")
-            
-            return output_path
-            
-        except Exception as e:
-            logger.error(f"[LOD] Failed to generate binary LOD: {e}")
-            import traceback
-            traceback.print_exc()
-            return None
+        # Binary LOD (C++ only) not available — caller falls back to Parquet
+        return None
     
     
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     def _generate_single_lod(
         self,
         lod_name: str,

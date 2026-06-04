@@ -10,14 +10,7 @@ from PyQt5.QtCore import QObject, pyqtSignal as Signal, QThread
 
 logger = logging.getLogger(__name__)
 
-# Try to import C++ module for fast limit violation detection
-try:
-    import time_graph_cpp as tgcpp
-    CPP_AVAILABLE = True
-    logger.info("[LIMIT_VIOLATION] C++ acceleration available")
-except ImportError:
-    CPP_AVAILABLE = False
-    logger.warning("[LIMIT_VIOLATION] C++ module not available, using Python fallback")
+CPP_AVAILABLE = False  # Pure Python implementation
 
 
 class LimitViolationCalculator(QObject):
@@ -403,7 +396,6 @@ class GraphRenderer:
         self.clear_all_deviation_lines()
         logger.info("GraphRenderer cleanup completed")
     
-<<<<<<< HEAD
     def apply_segmented_filter(self, container, graph_index: int, time_segments: List[Tuple[float, float]], tab_index: int = 0, filter_conditions: list = None):
         """Apply segmented display filter - show matching segments with gaps.
         
@@ -423,13 +415,6 @@ class GraphRenderer:
         logger.info(f"[SEGMENTED] Graph index: {graph_index}, Tab index: {tab_index}")
         logger.info(f"[SEGMENTED] Time segments: {len(time_segments)} segments")
         logger.info(f"[SEGMENTED] Filter conditions: {filter_conditions}")
-=======
-    def apply_segmented_filter(self, container, graph_index: int, time_segments: List[Tuple[float, float]], tab_index: int = 0):
-        """Apply segmented display filter - show matching segments with gaps."""
-        logger.debug(f"[SEGMENTED DEBUG] Starting segmented filter application")
-        logger.debug(f"[SEGMENTED DEBUG] Graph index: {graph_index}, Tab index: {tab_index}")
-        logger.debug(f"[SEGMENTED DEBUG] Time segments: {len(time_segments)} segments")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # Get visible signals for the CORRECT tab!
         visible_signals = self._get_visible_signals_for_graph(tab_index, graph_index)
@@ -439,39 +424,20 @@ class GraphRenderer:
             all_signals = self.signal_processor.get_all_signals()
             visible_signals = list(all_signals.keys())
         
-<<<<<<< HEAD
         logger.debug(f"[SEGMENTED] Target tab: {tab_index}, Visible signals: {visible_signals}")
         
         if not visible_signals:
             logger.warning(f"[SEGMENTED] No visible signals for graph {graph_index}")
-=======
-        logger.debug(f"[SEGMENTED DEBUG] Target tab: {tab_index}")
-        logger.debug(f"[SEGMENTED DEBUG] Visible signals: {visible_signals}")
-        
-        if not visible_signals:
-            logger.warning(f"[SEGMENTED DEBUG] No visible signals for graph {graph_index}")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return
         
         # Get plot widget and clear it
         plot_widgets = container.plot_manager.get_plot_widgets()
-<<<<<<< HEAD
         
         if graph_index < len(plot_widgets):
             plot_widget = plot_widgets[graph_index]
             plot_widget.clear()
         else:
             logger.warning(f"[SEGMENTED] Graph index {graph_index} out of range, available plots: {len(plot_widgets)}")
-=======
-        logger.debug(f"[SEGMENTED DEBUG] Available plot widgets: {len(plot_widgets)}")
-        
-        if graph_index < len(plot_widgets):
-            plot_widget = plot_widgets[graph_index]
-            logger.debug(f"[SEGMENTED DEBUG] Clearing plot widget {graph_index}")
-            plot_widget.clear()
-        else:
-            logger.warning(f"[SEGMENTED DEBUG] Graph index {graph_index} out of range, available plots: {len(plot_widgets)}")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return
         
         # Get all signals data
@@ -479,17 +445,10 @@ class GraphRenderer:
         
         # Process each visible signal
         for signal_name in visible_signals:
-<<<<<<< HEAD
             logger.info(f"[SEGMENTED] Processing signal: {signal_name}")
             
             if signal_name not in all_signals:
                 logger.warning(f"[SEGMENTED] Signal {signal_name} not found in all_signals")
-=======
-            logger.info(f"[SEGMENTED DEBUG] Processing signal: {signal_name}")
-            
-            if signal_name not in all_signals:
-                logger.warning(f"[SEGMENTED DEBUG] Signal {signal_name} not found in all_signals")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 continue
             
             full_x_data = np.array(all_signals[signal_name]['x_data'])
@@ -500,14 +459,7 @@ class GraphRenderer:
             metadata = all_signals[signal_name].get("metadata", {})
             full_count = metadata.get("full_count", len(full_x_data))
 
-<<<<<<< HEAD
             logger.info(f"[SEGMENTED] Signal '{signal_name}': preview={len(full_x_data)} pts, full={full_count} pts")
-=======
-            limits_config = self._get_limits_configuration(graph_index)
-            limits = limits_config.get(signal_name) if limits_config else None
-
-            logger.info(f"[SEGMENTED DEBUG] Signal data length (preview): {len(full_x_data)}")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Create optimized segmented data with proper NaN handling
             segmented_x = []
@@ -519,7 +471,6 @@ class GraphRenderer:
             
             for i, (segment_start, segment_end) in enumerate(sorted_segments):
                 try:
-<<<<<<< HEAD
                     segment_x = None
                     segment_y = None
                     
@@ -534,23 +485,10 @@ class GraphRenderer:
                         start_time_meta = metadata.get("start_time", 0.0)
                         end_time_meta = metadata.get("end_time", 10.0)  # ✅ FIX: Better default
                         
-=======
-                    if metadata.get("mpai") and hasattr(raw_df, "load_column_slice") and time_col:
-                        # Estimate sample rate from metadata or time range (avoid preview data dependence)
-                        sample_rate = 1.0
-                        start_time_meta = metadata.get("start_time", 0.0)
-                        end_time_meta = metadata.get("end_time", 1.0)
-                        
-                        # Calculate sample rate from full count and duration
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         duration = max(end_time_meta - start_time_meta, 1e-9)
                         if full_count > 1:
                              sample_rate = (full_count - 1) / duration
                         
-<<<<<<< HEAD
-=======
-                        # Fallback: load first and last time points from disk if metadata unreliable
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         if sample_rate == 1.0 and hasattr(raw_df, "load_column_slice"):
                              try:
                                  t_start = raw_df.load_column_slice(time_col, 0, 1)[0]
@@ -558,7 +496,6 @@ class GraphRenderer:
                                  duration = max(t_end - t_start, 1e-9)
                                  sample_rate = (full_count - 1) / duration
                              except Exception:
-<<<<<<< HEAD
                                  pass
 
                         start_row = max(0, int((segment_start - start_time_meta) * sample_rate))
@@ -572,26 +509,6 @@ class GraphRenderer:
                         # For proper filtering, C++ path is required
                         
                         # Optional: Apply smart downsampling ONLY if segment is too large (>1M points)
-=======
-                                 pass # Keep default or existing sample_rate
-
-                        start_row = max(0, int((segment_start - start_time_meta) * sample_rate))
-                        end_row = min(full_count, int((segment_end - start_time_meta) * sample_rate))
-                        
-                        # Safety alignment with time column search if needed (more precise but slower):
-                        # For now, linear mapping is fast and usually sufficient for segmented view.
-                        
-                        row_count = max(1, end_row - start_row)
-
-                        # ✅ FIX: NO downsampling for segmented filter!
-                        # Segmented filter shows filtered segments - user expects FULL data
-                        # Downsampling here causes 10k point limitation bug
-                        segment_x = np.array(raw_df.load_column_slice(time_col, int(start_row), int(row_count)), dtype=np.float64)
-                        segment_y = np.array(raw_df.load_column_slice(signal_name, int(start_row), int(row_count)), dtype=np.float64)
-                        
-                        # Optional: Apply smart downsampling ONLY if segment is too large (>1M points)
-                        # This prevents UI freeze with massive segments
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         max_segment_points = 1_000_000
                         if len(segment_x) > max_segment_points:
                             logger.warning(f"[SEGMENTED] Segment too large ({len(segment_x)} points), downsampling to {max_segment_points}")
@@ -642,7 +559,6 @@ class GraphRenderer:
                             segment_y = full_y_data[segment_indices]
                     
                     if len(segment_x) > 0:
-<<<<<<< HEAD
                         # ✅ CRITICAL: Apply Y-value filter using NumPy mask
                         # C++ calculate_streaming returns time ranges where SOME points pass
                         # We must filter to show ONLY points that actually match the condition
@@ -682,17 +598,6 @@ class GraphRenderer:
                             segmented_x.extend(segment_x)
                             segmented_y.extend(segment_y)
                             segments_found += 1
-=======
-                        # ✅ DEBUG: Log segment details
-                        logger.info(f"[SEGMENTED DEBUG] Segment {i+1}/{len(sorted_segments)}: loaded {len(segment_x)} points (time range: {segment_start:.2f}-{segment_end:.2f})")
-                        
-                        if segments_found > 0:
-                            segmented_x.append(np.nan)
-                            segmented_y.append(np.nan)
-                        segmented_x.extend(segment_x)
-                        segmented_y.extend(segment_y)
-                        segments_found += 1
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 except Exception as e:
                     logger.warning(f"[SEGMENTED DEBUG] Segment load failed for {signal_name}: {e}")
                     continue
@@ -725,7 +630,6 @@ class GraphRenderer:
                     autoDownsample=False
                 )
                 plot_widget.addItem(plot_item)
-<<<<<<< HEAD
 
                 logger.info(f"[SEGMENTED DEBUG] Signal {signal_name}: plotted {segments_found} segments as optimized PlotDataItem")
             else:
@@ -835,50 +739,6 @@ class GraphRenderer:
                     segment_y = full_y_data[mask]
                     logger.warning(f"[CONCATENATED] Using preview data fallback: {len(segment_x)} points (may be downsampled)")
 
-=======
-                
-                logger.info(f"[SEGMENTED DEBUG] Signal {signal_name}: plotted {segments_found} segments as optimized PlotDataItem")
-            else:
-                logger.warning(f"[SEGMENTED DEBUG] No valid segments found for signal {signal_name}")
-                    
-        logger.info(f"Segmented filter applied successfully to graph {graph_index}")
-        
-        # Apply limit lines if available
-        self._apply_limit_lines(plot_widget, graph_index, visible_signals)
-        
-        # ✅ FIX Problem #8: Auto-range view after filter to show all data
-        logger.debug(f"[VIEW FIX] Auto-ranging plot {graph_index} after segmented filter")
-        plot_widget.enableAutoRange(axis='x', enable=True)
-        plot_widget.enableAutoRange(axis='y', enable=True)
-        plot_widget.autoRange()
-        plot_widget.enableAutoRange(axis='x', enable=False)
-        plot_widget.enableAutoRange(axis='y', enable=False)
-    
-    def apply_concatenated_filter(self, container, time_segments: List[Tuple[float, float]]):
-        """Apply concatenated display filter - create continuous timeline from filtered segments."""
-        logger.info(f"[CONCATENATED DEBUG] Starting concatenated filter application")
-        logger.info(f"[CONCATENATED DEBUG] Time segments: {len(time_segments)} segments")
-        
-        # Get all signals data
-        all_signals = self.signal_processor.get_all_signals()
-        
-        # Create concatenated time and value arrays with continuous timeline
-        concatenated_data = {}
-        
-        for signal_name, signal_data in all_signals.items():
-            full_x_data = np.array(signal_data['x_data'])
-            full_y_data = np.array(signal_data['y_data'])
-            
-            concat_x = []
-            concat_y = []
-            current_time_offset = 0.0
-            
-            for i, (segment_start, segment_end) in enumerate(time_segments):
-                mask = (full_x_data >= segment_start) & (full_x_data <= segment_end)
-                segment_x = full_x_data[mask]
-                segment_y = full_y_data[mask]
-                
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 if len(segment_x) > 0:
                     # Create continuous timeline by adjusting time values
                     if i == 0:
@@ -888,7 +748,6 @@ class GraphRenderer:
                     else:
                         # Subsequent segments continue from where previous ended
                         segment_duration = segment_x[-1] - segment_x[0] if len(segment_x) > 1 else 0
-<<<<<<< HEAD
                         adjusted_x = np.linspace(current_time_offset,
                                                current_time_offset + segment_duration,
                                                len(segment_x))
@@ -897,22 +756,11 @@ class GraphRenderer:
                     concat_x.extend(adjusted_x)
                     concat_y.extend(segment_y)
 
-=======
-                        adjusted_x = np.linspace(current_time_offset, 
-                                               current_time_offset + segment_duration, 
-                                               len(segment_x))
-                        current_time_offset = adjusted_x[-1] if len(adjusted_x) > 0 else current_time_offset
-                    
-                    concat_x.extend(adjusted_x)
-                    concat_y.extend(segment_y)
-            
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             if concat_x:
                 concatenated_data[signal_name] = {
                     'time': np.array(concat_x),
                     'values': np.array(concat_y)
                 }
-<<<<<<< HEAD
                 logger.info(f"[CONCATENATED FIX] Signal '{signal_name}': {len(concat_x)} total points, "
                            f"time range: {concat_x[0]:.3f} - {concat_x[-1]:.3f}")
 
@@ -924,24 +772,10 @@ class GraphRenderer:
         # container.plot_manager.redraw_all_plots() yeterli değil - sadece repaint yapıyor
 
         logger.info(f"[CONCATENATED FIX] Concatenated filter applied successfully - continuous timeline created")
-=======
-                logger.debug(f"[CONCATENATED DEBUG] Signal '{signal_name}': {len(concat_x)} points, "
-                           f"time range: {concat_x[0]:.3f} - {concat_x[-1]:.3f}")
-        
-        # Update signal processor with concatenated data
-        self.signal_processor.set_filtered_data(concatenated_data)
-        logger.info(f"[CONCATENATED DEBUG] Updated signal processor with concatenated data")
-        
-        # NOT: Grafik redraw'ı TimeGraphWidget._redraw_all_signals() tarafından yapılacak
-        # container.plot_manager.redraw_all_plots() yeterli değil - sadece repaint yapıyor
-        
-        logger.info(f"Concatenated filter applied successfully - continuous timeline created")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     
     def clear_filters(self, container, graph_index: int):
         """Clear all filters and restore original data display."""
         logger.info(f"[CLEAR DEBUG] Clearing filters for graph {graph_index}")
-<<<<<<< HEAD
 
         try:
             # ✅ CRITICAL FIX: Re-enable LOD engine when clearing filter
@@ -964,23 +798,6 @@ class GraphRenderer:
             # Apply limit lines to all plots
             self._apply_limit_lines_to_all_plots(container)
 
-=======
-        
-        try:
-            # Restore original data in signal processor (important for concatenated display)
-            self.signal_processor.restore_original_data()
-            logger.info(f"[CLEAR DEBUG] Restored original data in signal processor")
-            
-            # Clear all plots and redraw with original data
-            container.plot_manager.clear_all_signals()
-            
-            # Trigger redraw of all graphs with original data
-            container.plot_manager.redraw_all_plots()
-            
-            # Apply limit lines to all plots
-            self._apply_limit_lines_to_all_plots(container)
-            
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             logger.info(f"[CLEAR DEBUG] Successfully cleared filters and restored original data")
                 
         except Exception as e:
@@ -1091,342 +908,108 @@ class GraphRenderer:
     
     def _highlight_limit_violations(self, plot_widget, graph_index: int, signal_name: str, limits: Dict[str, float]):
         """
-        Highlight areas where signal violates limits with dashed lines.
-        CRITICAL: C++ SIMD acceleration is REQUIRED - checks ALL data points without downsampling.
-        Python fallback is DISABLED to prevent missed violations.
+        Highlight limit violation segments using pure Python/NumPy.
+        Reads ALL data from the MPAI reader or in-memory arrays.
         """
         try:
-            worker_key = f"{graph_index}_{signal_name}_violation"
-            
-            # Cancel any existing calculation for this signal
-            self._cancel_limit_violation_calculation(worker_key)
-            
             warning_min = limits.get('warning_min', 0.0)
             warning_max = limits.get('warning_max', 0.0)
-            
-            # Check if C++ module is available
-            if not CPP_AVAILABLE:
-                error_msg = (
-                    "C++ module not available!\n\n"
-                    "Static Limits requires C++ SIMD acceleration to check ALL data points.\n"
-                    "Python fallback would miss violations due to downsampling.\n\n"
-                    "Please compile the C++ module:\n"
-                    "  cd cpp/build\n"
-                    "  cmake .. -DCMAKE_BUILD_TYPE=Release\n"
-                    "  cmake --build . --config Release\n"
-                    "  Copy time_graph_cpp.*.pyd to project root"
-                )
-                logger.error(f"[LIMIT_VIOLATION] {error_msg}")
-                raise RuntimeError(error_msg)
-            
-            # Check if we have MPAI reader for streaming
-            reader = getattr(self.signal_processor, 'raw_dataframe', None)
-            time_col_name = getattr(self.signal_processor, 'time_column_name', None)
-            is_mpai = hasattr(reader, 'get_header')
-            
-            # Auto-detect time column if not set
-            if is_mpai and not time_col_name and hasattr(reader, 'get_column_names'):
-                available_columns = reader.get_column_names()
-                # Find column with 'time' in name (case-insensitive)
-                for col in available_columns:
-                    if 'time' in col.lower():
-                        time_col_name = col
-                        logger.info(f"[LIMIT_VIOLATION] Auto-detected time column: '{time_col_name}'")
-                        break
-                
-                # If still not found, use first column
-                if not time_col_name and available_columns:
-                    time_col_name = available_columns[0]
-                    logger.warning(f"[LIMIT_VIOLATION] No time column found, using first column: '{time_col_name}'")
-            
-            if not is_mpai:
-                error_msg = (
-                    "MPAI format required for Static Limits!\n\n"
-                    "Static Limits requires MPAI format to stream ALL data points.\n"
-                    "CSV files are automatically converted to MPAI on load.\n\n"
-                    "If you see this error, the file was not properly converted."
-                )
-                logger.error(f"[LIMIT_VIOLATION] {error_msg}")
-                raise RuntimeError(error_msg)
-            
-            # Use C++ streaming - checks ALL data points from disk!
-            logger.info(f"[LIMIT_VIOLATION] Using C++ SIMD streaming for {signal_name} (checks ALL data)")
-            
-            try:
-                engine = tgcpp.LimitViolationEngine()
-            except AttributeError as e:
-                error_msg = (
-                    "C++ module outdated or incomplete!\n\n"
-                    "LimitViolationEngine not found in C++ module.\n"
-                    "Please recompile the C++ module with latest code:\n\n"
-                    "  cd cpp\n"
-                    "  Remove-Item -Recurse -Force build\n"
-                    "  mkdir build\n"
-                    "  cd build\n"
-                    "  cmake .. -DCMAKE_BUILD_TYPE=Release\n"
-                    "  cmake --build . --config Release\n"
-                    "  cd ..\n"
-                    "  Copy-Item build/Release/time_graph_cpp.*.pyd ..\n\n"
-                    f"Error details: {e}"
-                )
-                logger.error(f"[LIMIT_VIOLATION] {error_msg}")
-                raise RuntimeError(error_msg)
-            
-            # Call C++ engine (it does its own internal chunking for memory efficiency)
-            logger.info(f"[LIMIT_VIOLATION] Calling C++ SIMD engine with parameters:")
-            logger.info(f"  signal='{signal_name}', time='{time_col_name}'")
-            logger.info(f"  min={warning_min}, max={warning_max}")
-            
-            try:
-<<<<<<< HEAD
-                # =====================================================
-                # ARROW BRIDGE: Load data from Python reader, pass to C++
-                # This avoids the type mismatch (Python MpaiDirectoryReader vs C++ MpaiReader)
-                # =====================================================
-                logger.info(f"[LIMIT_VIOLATION] Starting C++ calculation via Arrow bridge...")
-                
-                # Load data from Python reader
-                row_count = reader.get_row_count()
-                
-                # Load time data
-                try:
-                    time_data = reader.load_column_slice(time_col_name, 0, row_count)
-                    import numpy as np
-                    if isinstance(time_data, list):
-                        time_data = np.array(time_data, dtype=np.float64)
-                except Exception as e:
-                    logger.warning(f"[LIMIT_VIOLATION] Could not load time column '{time_col_name}', generating synthetic: {e}")
-                    import numpy as np
-                    t_start, t_end = reader.get_time_range()
-                    time_data = np.linspace(t_start, t_end, row_count, dtype=np.float64)
-                
-                # Load signal data  
-                signal_data = reader.load_column_slice(signal_name, 0, row_count)
-                if isinstance(signal_data, list):
-                    signal_data = np.array(signal_data, dtype=np.float64)
-                
-                logger.info(f"[LIMIT_VIOLATION] Loaded {len(signal_data)} points from Python reader")
-                
-                # Call C++ with arrays (works with any reader type)
-                result = engine.calculate_violations_arrays(
-                    signal_data,
-                    time_data, 
-                    warning_min,
-                    warning_max
-=======
-                # Let C++ handle the entire file with its internal 1M-row chunking
-                # This avoids double-chunking issues and is optimized for SIMD
-                logger.info(f"[LIMIT_VIOLATION] Starting C++ streaming calculation...")
-                
-                result = engine.calculate_violations_streaming(
-                    reader,
-                    signal_name,
-                    time_col_name,
-                    warning_min,
-                    warning_max
-                    # start_row=0, row_count=0 (defaults) => process entire file
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
-                )
-                
-                logger.info(f"[LIMIT_VIOLATION] C++ calculation completed successfully")
-                
-                # Log results
-                if result.violations:
-                    logger.info(f"⚠ [LIMIT_VIOLATION] Found {len(result.violations)} violation segments in {signal_name}")
-                    logger.info(f"  Total violation points: {result.total_violation_points}/{result.total_data_points}")
-                    
-<<<<<<< HEAD
-                    # Draw segments - need to pass arrays for drawing since we have them
-                    self._draw_violation_segments_from_arrays(
-                        plot_widget, graph_index, signal_name, result, 
-                        time_data, signal_data
-                    )
-=======
-                    # Draw segments in batches to keep UI responsive
-                    self._draw_cpp_violation_segments(plot_widget, graph_index, signal_name, result, reader, time_col_name)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
-                else:
-                    logger.info(f"✓ [LIMIT_VIOLATION] No violations found in {signal_name}")
-                    
-            except AttributeError as attr_error:
-                # C++ function not found or incompatible version
-                error_msg = (
-                    f"C++ module mismatch or outdated!\n\n"
-                    f"Function 'calculate_violations_streaming' not found or incompatible.\n"
-                    f"Please recompile the C++ module:\n\n"
-                    f"  cd cpp\n"
-                    f"  Remove-Item -Recurse -Force build\n"
-                    f"  mkdir build; cd build\n"
-                    f"  cmake .. -DCMAKE_BUILD_TYPE=Release\n"
-                    f"  cmake --build . --config Release\n\n"
-                    f"Error: {attr_error}"
-                )
-                logger.error(f"[LIMIT_VIOLATION] {error_msg}", exc_info=True)
-                # Don't raise - show warning to user instead
-                from PyQt5.QtWidgets import QMessageBox
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
-                msg.setWindowTitle("C++ Module Error")
-                msg.setText("Static Limits kapalı")
-                msg.setInformativeText("C++ modülü güncel değil. Lütfen yeniden derleyin.")
-                msg.setDetailedText(error_msg)
-                msg.exec_()
-                return
-                
-            except RuntimeError as runtime_error:
-                # C++ internal error (e.g., file I/O, memory)
-                error_msg = f"C++ runtime error: {runtime_error}"
-                logger.error(f"[LIMIT_VIOLATION] {error_msg}", exc_info=True)
-                # Don't crash - show error to user
-                from PyQt5.QtWidgets import QMessageBox
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Critical)
-                msg.setWindowTitle("Static Limits Hatası")
-                msg.setText(f"Limit ihlali kontrolü başarısız: {signal_name}")
-                msg.setInformativeText("C++ motoru bir hata ile karşılaştı.")
-                msg.setDetailedText(str(runtime_error))
-                msg.exec_()
-                return
-                
-            except Exception as cpp_error:
-                # Unknown error
-                error_msg = f"Unexpected error in C++ violation detection: {cpp_error}"
-                logger.error(f"[LIMIT_VIOLATION] {error_msg}", exc_info=True)
-                # Don't crash - show generic error
-                from PyQt5.QtWidgets import QMessageBox
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Warning)
-                msg.setWindowTitle("Static Limits Hatası")
-                msg.setText(f"Beklenmeyen hata: {signal_name}")
-                msg.setInformativeText("Limit kontrolü tamamlanamadı.")
-                msg.setDetailedText(str(cpp_error))
-                msg.exec_()
-                return
-            
-        except RuntimeError:
-            # Re-raise RuntimeError (our custom errors)
-            raise
-        except Exception as e:
-            error_msg = f"Unexpected error in limit violation detection: {e}"
-            logger.error(f"[LIMIT_VIOLATION] {error_msg}", exc_info=True)
-            raise RuntimeError(error_msg)
-    
-    def _calculate_and_draw_violations_sync(self, plot_widget, graph_index: int, signal_name: str, 
-                                            x_data: np.ndarray, y_data: np.ndarray, limits: Dict[str, float]):
-        """DEPRECATED: Python fallback - no longer used."""
-        raise RuntimeError("Python violation calculation is disabled! C++ SIMD is required.")
-    
-    def _on_violation_calculation_complete(self, result: dict, plot_widget, graph_index: int):
-        """DEPRECATED: Python fallback - no longer used."""
-        raise RuntimeError("Python violation calculation is disabled! C++ SIMD is required.")
-    
-    def _draw_cpp_violation_segments(self, plot_widget, graph_index: int, signal_name: str, cpp_result, reader, time_col_name):
-        """Draw violation segments from C++ violation result with UI batching."""
-        try:
-            if not cpp_result.violations:
-                return
-            
-            from PyQt5.QtWidgets import QApplication
-            
-            # Create violation highlight pen
-            violation_pen = pg.mkPen(color='#FF0000', width=4, style=pg.QtCore.Qt.CustomDashLine)
-            violation_pen.setDashPattern([6, 3])
-            
-            limit_key = f"{graph_index}_{signal_name}"
-            if limit_key not in self.limit_lines:
-                self.limit_lines[limit_key] = []
-            
-            total_segments = len(cpp_result.violations)
-            segments_drawn = 0
-            batch_size = 100  # Draw 100 segments at a time, then process events
-            
-            for i, segment in enumerate(cpp_result.violations):
-                # Load this segment's data from disk
-                start_idx = int(segment.start_index)
-                end_idx = int(segment.end_index)
-                segment_length = end_idx - start_idx + 1
-                
-                try:
-                    time_data = reader.load_column_slice(time_col_name, start_idx, segment_length)
-                    signal_data = reader.load_column_slice(signal_name, start_idx, segment_length)
-                    
-                    if len(time_data) > 0 and len(signal_data) > 0:
-                        # Draw this violation segment
-                        legend_name = None 
-                        if i == 0:  # Only first segment gets legend
-                             legend_name = f'{signal_name}_violation'
 
-                        violation_line = plot_widget.plot(time_data, signal_data, pen=violation_pen, name=legend_name)
-                        violation_line.setZValue(10)
-                        self.limit_lines[limit_key].append(violation_line)
-                        segments_drawn += 1
-                        
-                        # Process events every batch_size segments to keep UI responsive
-                        if (i + 1) % batch_size == 0:
-                            QApplication.processEvents()
-                            
+            reader = getattr(self.signal_processor, 'raw_dataframe', None)
+            time_col_name = getattr(self.signal_processor, 'time_column_name', None) or 'time'
+
+            # Load full data
+            if reader is not None and hasattr(reader, 'get_row_count'):
+                # MPAI reader path
+                row_count = reader.get_row_count()
+                try:
+                    time_data = np.asarray(reader.load_column_slice(time_col_name, 0, row_count), dtype=np.float64)
+                except Exception:
+                    try:
+                        t0, t1 = reader.get_time_range()
+                        time_data = np.linspace(t0, t1, row_count, dtype=np.float64)
+                    except Exception:
+                        logger.warning(f"[LIMIT_VIOLATION] Cannot load time data for {signal_name}")
+                        return
+                try:
+                    signal_data = np.asarray(reader.load_column_slice(signal_name, 0, row_count), dtype=np.float64)
                 except Exception as e:
-                    logger.warning(f"[LIMIT_VIOLATION] Could not load segment {i} at index {start_idx}: {e}")
-            
-            logger.info(f"✓ [LIMIT_VIOLATION] Drew {segments_drawn}/{total_segments} violation segments for {signal_name}")
-                    
-        except Exception as e:
-            logger.error(f"[LIMIT_VIOLATION] Error drawing C++ violations for {signal_name}: {e}", exc_info=True)
-    
-<<<<<<< HEAD
-    def _draw_violation_segments_from_arrays(self, plot_widget, graph_index: int, signal_name: str, 
-                                              cpp_result, time_data: np.ndarray, signal_data: np.ndarray):
-        """Draw violation segments using pre-loaded arrays (Arrow bridge version)."""
-        try:
-            if not cpp_result.violations:
+                    logger.warning(f"[LIMIT_VIOLATION] Cannot load signal '{signal_name}': {e}")
+                    return
+            elif self.signal_processor is not None:
+                # In-memory path
+                sig_info = getattr(self.signal_processor, 'signal_data', {}).get(signal_name)
+                if sig_info is None:
+                    return
+                time_data = np.asarray(sig_info.get('x_data', []), dtype=np.float64)
+                signal_data = np.asarray(sig_info.get('y_data', []), dtype=np.float64)
+            else:
                 return
-            
-            from PyQt5.QtWidgets import QApplication
-            
-            # Create violation highlight pen
-            violation_pen = pg.mkPen(color='#FF0000', width=4, style=pg.QtCore.Qt.CustomDashLine)
-            violation_pen.setDashPattern([6, 3])
-            
-            limit_key = f"{graph_index}_{signal_name}"
-            if limit_key not in self.limit_lines:
-                self.limit_lines[limit_key] = []
-            
-            total_segments = len(cpp_result.violations)
-            segments_drawn = 0
-            batch_size = 100
-            
-            for i, segment in enumerate(cpp_result.violations):
-                start_idx = int(segment.start_index)
-                end_idx = int(segment.end_index)
-                
-                # Use pre-loaded arrays instead of loading from disk
-                if start_idx < len(time_data) and end_idx < len(signal_data):
-                    seg_time = time_data[start_idx:end_idx + 1]
-                    seg_signal = signal_data[start_idx:end_idx + 1]
-                    
-                    if len(seg_time) > 0 and len(seg_signal) > 0:
-                        legend_name = f'{signal_name}_violation' if i == 0 else None
-                        
-                        violation_line = plot_widget.plot(seg_time, seg_signal, pen=violation_pen, name=legend_name)
-                        violation_line.setZValue(10)
-                        self.limit_lines[limit_key].append(violation_line)
-                        segments_drawn += 1
-                        
-                        if (i + 1) % batch_size == 0:
-                            QApplication.processEvents()
-            
-            logger.info(f"✓ [LIMIT_VIOLATION] Drew {segments_drawn}/{total_segments} violation segments for {signal_name}")
-                    
+
+            if len(time_data) == 0 or len(signal_data) == 0:
+                return
+
+            # Build violation mask
+            violation_mask = (signal_data < warning_min) | (signal_data > warning_max)
+            if not np.any(violation_mask):
+                logger.info(f"[LIMIT_VIOLATION] No violations found for {signal_name}")
+                return
+
+            # Find contiguous violation segments
+            segments = self._numpy_violation_segments(time_data, signal_data, violation_mask)
+            logger.info(f"[LIMIT_VIOLATION] Found {len(segments)} violation segments for {signal_name}")
+            self._draw_numpy_violation_segments(plot_widget, graph_index, signal_name, segments)
+
         except Exception as e:
-            logger.error(f"[LIMIT_VIOLATION] Error drawing violations from arrays for {signal_name}: {e}", exc_info=True)
+            logger.error(f"[LIMIT_VIOLATION] Error: {e}", exc_info=True)
     
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
-    def _draw_violation_segments(self, plot_widget, graph_index: int, signal_name: str, 
-                                 violations: list, x_data: np.ndarray, y_data: np.ndarray):
-        """DEPRECATED: Python fallback - no longer used."""
-        raise RuntimeError("Python violation drawing is disabled! Use C++ SIMD results.")
-    
+    @staticmethod
+    def _numpy_violation_segments(
+        time_data: np.ndarray,
+        signal_data: np.ndarray,
+        mask: np.ndarray,
+    ) -> list:
+        """Convert a boolean violation mask to (t_arr, y_arr) segment pairs."""
+        segments = []
+        true_idx = np.where(mask)[0]
+        if len(true_idx) == 0:
+            return segments
+        breaks = np.where(np.diff(true_idx) > 1)[0]
+        start = 0
+        for b in breaks:
+            seg = true_idx[start : b + 1]
+            segments.append((time_data[seg], signal_data[seg]))
+            start = b + 1
+        seg = true_idx[start:]
+        if len(seg):
+            segments.append((time_data[seg], signal_data[seg]))
+        return segments
+
+    def _draw_numpy_violation_segments(
+        self,
+        plot_widget,
+        graph_index: int,
+        signal_name: str,
+        segments: list,
+    ):
+        """Draw pre-computed violation segments on the plot."""
+        from PyQt5.QtWidgets import QApplication
+
+        violation_pen = pg.mkPen(color='#FF0000', width=4, style=pg.QtCore.Qt.CustomDashLine)
+        violation_pen.setDashPattern([6, 3])
+
+        limit_key = f"{graph_index}_{signal_name}"
+        if limit_key not in self.limit_lines:
+            self.limit_lines[limit_key] = []
+
+        for i, (t_seg, y_seg) in enumerate(segments):
+            legend_name = f'{signal_name}_violation' if i == 0 else None
+            line = plot_widget.plot(t_seg, y_seg, pen=violation_pen, name=legend_name)
+            line.setZValue(10)
+            self.limit_lines[limit_key].append(line)
+            if (i + 1) % 100 == 0:
+                QApplication.processEvents()
+
     def _cancel_limit_violation_calculation(self, worker_key: str):
         """Cancel an ongoing limit violation calculation."""
         try:
@@ -1453,8 +1036,18 @@ class GraphRenderer:
             logger.debug(f"[LIMIT_VIOLATION] Error cleaning up thread: {e}")
     
     def _group_consecutive_indices(self, indices: List[int]) -> List[List[int]]:
-        """DEPRECATED: Python fallback - no longer used."""
-        raise RuntimeError("Python violation grouping is disabled! C++ handles this.")
+        """Group consecutive indices into sub-lists."""
+        if not indices:
+            return []
+        groups, current = [], [indices[0]]
+        for idx in indices[1:]:
+            if idx == current[-1] + 1:
+                current.append(idx)
+            else:
+                groups.append(current)
+                current = [idx]
+        groups.append(current)
+        return groups
     
     def _clear_limit_lines(self, plot_widget, graph_index: int):
         """Clear existing limit lines for a specific graph."""

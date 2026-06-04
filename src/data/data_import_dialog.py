@@ -91,16 +91,12 @@ class DataPreviewThread(QThread):
                 df = pl.read_parquet(self.file_path)
                 df = df.head(100)  # İlk 100 satır
             elif file_ext == '.mpai':
-                # MPAI dosyası
-                import time_graph_cpp
-                reader = time_graph_cpp.MpaiReader(self.file_path)
-                
-                # Metadata ve preview için ilk 100 satır
+                # MPAI dosyası — Python reader
+                from src.data.data_loader import MpaiDirectoryReader
+                reader = MpaiDirectoryReader(self.file_path)
                 count = reader.get_row_count()
                 preview_count = min(count, 100)
                 cols = reader.get_column_names()
-                
-                # Data dict oluştur
                 data = {}
                 for col in cols:
                     try:
@@ -108,7 +104,6 @@ class DataPreviewThread(QThread):
                     except Exception as e:
                         logger.warning(f"Preview column '{col}' failed: {e}")
                         data[col] = [None] * preview_count
-                
                 df = pl.DataFrame(data)
             else:
                 # Genel okuma denemesi - CSV gibi işle
@@ -497,7 +492,6 @@ class DataImportDialog(QDialog):
         ])
         layout.addWidget(self.time_format_combo, 2, 1)
         
-<<<<<<< HEAD
         # Ayırıcı çizgi - yeni zaman kolonu için
         self.new_time_separator = QFrame()
         self.new_time_separator.setFrameShape(QFrame.HLine)
@@ -511,19 +505,6 @@ class DataImportDialog(QDialog):
         # Örnekleme frekansı
         self.sampling_freq_label = QLabel("Örnekleme Frekansı (Hz):")
         layout.addWidget(self.sampling_freq_label, 5, 0)
-=======
-        # Ayırıcı çizgi
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(separator, 3, 0, 1, 2)
-        
-        # Yeni zaman kolonu ayarları
-        layout.addWidget(QLabel("🕒 Yeni Zaman Kolonu Ayarları"), 4, 0, 1, 2)
-        
-        # Örnekleme frekansı
-        layout.addWidget(QLabel("Örnekleme Frekansı (Hz):"), 5, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.sampling_freq_spinbox = QSpinBox()
         self.sampling_freq_spinbox.setRange(1, 1000000)  # 1 Hz - 1 MHz
         self.sampling_freq_spinbox.setValue(1)  # Varsayılan 1 Hz
@@ -531,12 +512,8 @@ class DataImportDialog(QDialog):
         layout.addWidget(self.sampling_freq_spinbox, 5, 1)
         
         # Başlangıç zamanı
-<<<<<<< HEAD
         self.start_time_label = QLabel("Başlangıç Zamanı:")
         layout.addWidget(self.start_time_label, 6, 0)
-=======
-        layout.addWidget(QLabel("Başlangıç Zamanı:"), 6, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.start_time_combo = QComboBox()
         self.start_time_combo.addItems([
             "0 (Sıfırdan Başla)",
@@ -546,40 +523,27 @@ class DataImportDialog(QDialog):
         layout.addWidget(self.start_time_combo, 6, 1)
         
         # Özel başlangıç zamanı
-<<<<<<< HEAD
         self.custom_start_label = QLabel("Özel Başlangıç:")
         layout.addWidget(self.custom_start_label, 7, 0)
-=======
-        layout.addWidget(QLabel("Özel Başlangıç:"), 7, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.custom_start_time = QLineEdit()
         self.custom_start_time.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
         self.custom_start_time.setEnabled(False)
         layout.addWidget(self.custom_start_time, 7, 1)
         
         # Zaman birimi
-<<<<<<< HEAD
         self.time_unit_label = QLabel("Zaman Birimi:")
         layout.addWidget(self.time_unit_label, 8, 0)
-=======
-        layout.addWidget(QLabel("Zaman Birimi:"), 8, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.time_unit_combo = QComboBox()
         self.time_unit_combo.addItems(['saniye', 'milisaniye', 'mikrosaniye', 'nanosaniye'])
         layout.addWidget(self.time_unit_combo, 8, 1)
         
         # Zaman kolonu adı
-<<<<<<< HEAD
         self.new_time_column_label = QLabel("Yeni Kolon Adı:")
         layout.addWidget(self.new_time_column_label, 9, 0)
-=======
-        layout.addWidget(QLabel("Yeni Kolon Adı:"), 9, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.new_time_column_name = QLineEdit()
         self.new_time_column_name.setText("time_generated")
         layout.addWidget(self.new_time_column_name, 9, 1)
         
-<<<<<<< HEAD
         # Yeni zaman kolonu widget'larını listeye kaydet (gizleme için)
         self.new_time_widgets = [
             self.new_time_separator,
@@ -595,8 +559,6 @@ class DataImportDialog(QDialog):
         for widget in self.new_time_widgets:
             widget.setVisible(False)
         
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         return group
         
     def _create_button_panel(self):
@@ -793,7 +755,6 @@ class DataImportDialog(QDialog):
                         if 'çevrilemedi' in issue:
                             warnings.append(f"💡 '{col_name}': {issue}")
             
-<<<<<<< HEAD
             # Kullanıcıya bilgi ver (Kaldırıldı - log only)
             if issues:
                 logger.info("Data Quality Issues found but dialog suppressed:")
@@ -807,18 +768,6 @@ class DataImportDialog(QDialog):
                 # msg += "\n\n💡 İsterseniz import ayarlarını değiştirebilirsiniz."
                 
                 # QMessageBox.information(self, "Veri Kalite Kontrolü", msg)
-=======
-            # Kullanıcıya bilgi ver
-            if issues:
-                msg = "📊 **Veri Kalite Uyarıları:**\n\n"
-                msg += "\n".join(issues[:5])  # İlk 5 sorunu göster
-                if len(issues) > 5:
-                    msg += f"\n\n... ve {len(issues) - 5} diğer sorun"
-                msg += "\n\n✅ Uygulama bu sorunları otomatik olarak düzeltmeye çalışacak."
-                msg += "\n\n💡 İsterseniz import ayarlarını değiştirebilirsiniz."
-                
-                QMessageBox.information(self, "Veri Kalite Kontrolü", msg)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             logger.info(f"Veri validasyonu tamamlandı: {len(issues)} sorun, {len(warnings)} uyarı")
             
@@ -877,19 +826,9 @@ class DataImportDialog(QDialog):
         self.time_column_combo.setEnabled(is_existing_mode)
         self.time_format_combo.setEnabled(is_existing_mode)
         
-<<<<<<< HEAD
         # Yeni zaman kolonu widget'larını göster/gizle
         for widget in self.new_time_widgets:
             widget.setVisible(not is_existing_mode)
-=======
-        # Yeni zaman kolonu ayarlarını etkinleştir/devre dışı bırak
-        self.sampling_freq_spinbox.setEnabled(not is_existing_mode)
-        self.start_time_combo.setEnabled(not is_existing_mode)
-        self.custom_start_time.setEnabled(not is_existing_mode and 
-                                         self.start_time_combo.currentText() == "Özel Zaman")
-        self.time_unit_combo.setEnabled(not is_existing_mode)
-        self.new_time_column_name.setEnabled(not is_existing_mode)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         logger.debug(f"Zaman kolonu modu değişti: {mode_text}")
         
@@ -973,19 +912,12 @@ class DataImportDialog(QDialog):
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 8px;
-<<<<<<< HEAD
                 padding: 2px 6px 2px 6px;
                 color: #1a5276;
                 background-color: #e8eaed;
                 border-radius: 3px;
                 font-weight: 700;
                 font-size: 12px;
-=======
-                padding: 0 4px 0 4px;
-                color: #7fb3d3;
-                font-weight: 600;
-                font-size: 11px;
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QLabel {
                 color: #e8eaed;
@@ -1050,17 +982,9 @@ class DataImportDialog(QDialog):
                 border-left: 1px solid #5f7c8a;
             }
             QComboBox::down-arrow {
-<<<<<<< HEAD
                 image: url(icons/chevron-down.svg);
                 width: 12px;
                 height: 12px;
-=======
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #e8eaed;
-                margin-right: 6px;
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QComboBox QAbstractItemView {
                 background-color: #2a3441;
@@ -1114,10 +1038,7 @@ class DataImportDialog(QDialog):
             QCheckBox::indicator:checked {
                 background-color: #5f7c8a;
                 border: 1px solid #7fb3d3;
-<<<<<<< HEAD
                 image: url(icons/check.svg);
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QScrollArea {
                 background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
@@ -1146,18 +1067,12 @@ class DataImportDialog(QDialog):
                 background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                     stop: 0 #4a6270, stop: 1 #3a4a5c);
                 border: 1px solid #5f7c8a;
-<<<<<<< HEAD
                 width: 16px;
                 height: 12px;
-=======
-                width: 14px;
-                height: 10px;
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QSpinBox::up-button:hover, QSpinBox::down-button:hover {
                 background: #5f7c8a;
             }
-<<<<<<< HEAD
             QSpinBox::up-arrow {
                 image: url(icons/chevron-up.svg);
                 width: 10px;
@@ -1168,8 +1083,6 @@ class DataImportDialog(QDialog):
                 width: 10px;
                 height: 10px;
             }
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         """)
         
     def get_import_settings(self) -> Dict[str, Any]:
@@ -1230,16 +1143,11 @@ class DataImportDialog(QDialog):
             })
         else:
             # Mevcut zaman kolonu ayarları
-<<<<<<< HEAD
             time_column_raw = self.time_column_combo.currentText()
             time_column_cleaned = time_column_raw.strip()  # Match converter's cleaning
             settings.update({
                 'time_column': time_column_cleaned,  # Use cleaned name for consistency
                 'time_column_original': time_column_raw,  # Keep original for debugging
-=======
-            settings.update({
-                'time_column': self.time_column_combo.currentText(),
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 'time_format': time_format,  # Parsed format
                 'time_unit': self.time_unit_combo.currentText()
             })

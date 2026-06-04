@@ -41,16 +41,8 @@ class LODEngine:
         self._cache: Dict[str, dict] = {}  # signal_name -> {view_range, data}
         self._cache_max_size = 20
         
-        # Import C++ module once
-        try:
-            import time_graph_cpp
-            self._cpp_module = time_graph_cpp
-            self._cpp_available = True
-            logger.info("[LOD] C++ SmartDownsampler available")
-        except ImportError:
-            self._cpp_module = None
-            self._cpp_available = False
-            logger.warning("[LOD] C++ module not available, using Python fallback")
+        self._cpp_module = None
+        self._cpp_available = False
     
     def get_display_data(
         self,
@@ -140,30 +132,6 @@ class LODEngine:
         if row_count == 0:
             return None
         
-        if self._cpp_available:
-            try:
-                # Use C++ SmartDownsampler for streaming
-                config = self._cpp_module.SmartDownsampleConfig()
-                config.target_points = target_points
-                config.use_lttb = True
-                config.detect_local_extrema = True
-                
-                downsampler = self._cpp_module.SmartDownsampler()
-                result = downsampler.downsample_streaming(
-                    reader, time_col, col_name, config
-                )
-                
-                x_data = np.array(result.x, dtype=np.float64)
-                y_data = np.array(result.y, dtype=np.float64)
-                
-                logger.debug(f"[LOD] C++ streaming: {result.input_size} -> {result.output_size} points")
-                return x_data, y_data
-                
-            except Exception as e:
-                logger.error(f"[LOD] C++ streaming failed: {e}")
-                # Fall through to Python fallback
-        
-        # Python fallback: Load visible range only
         return self._python_fallback_mpai(reader, time_col, col_name, x_min, x_max, target_points)
     
     def _get_csv_display_data(
@@ -192,19 +160,6 @@ class LODEngine:
         if len(x_visible) <= target_points:
             return x_visible, y_visible
         
-        # Downsample using C++ if available
-        if self._cpp_available:
-            try:
-                result = self._cpp_module.smart_downsample(
-                    x_visible.astype(np.float64),
-                    y_visible.astype(np.float64),
-                    target_points
-                )
-                return np.array(result.x), np.array(result.y)
-            except Exception as e:
-                logger.warning(f"[LOD] C++ downsample failed: {e}")
-        
-        # Python fallback: Simple min-max bucketing
         return self._python_minmax_downsample(x_visible, y_visible, target_points)
     
     def _python_fallback_mpai(
