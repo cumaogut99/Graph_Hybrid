@@ -1105,17 +1105,18 @@ class SignalProcessor(QObject):
                 is_mpai = metadata.get('mpai', False)
                 is_memory_mapped = metadata.get('memory_mapped', False)
                 
-                # ========== MEMORY-MAPPED MPAI: Use C++ FastStatsCalculator OR MpaiDirectoryReader ===                        # Get reader and column info from signal_info
-                        reader = signal_info.get('mpai_reader')
-                        col_name = signal_info.get('column_name', name)
-                        time_col = signal_info.get('time_column', 'time')
-                        
-                        if reader is None:
-                            logger.error(f"[STATS] Memory-mapped signal '{name}' has no mpai_reader")
-                            continue
-                        
-                        # 1. NEW: Check if this is the Python MpaiDirectoryReader (has get_statistics_snapshot)
-                        if hasattr(reader, 'get_statistics_snapshot') and hasattr(reader, 'name_to_id'):
+                # ========== MEMORY-MAPPED MPAI: Use MpaiDirectoryReader ==========
+                if is_memory_mapped:
+                    reader = signal_info.get('mpai_reader')
+                    col_name = signal_info.get('column_name', name)
+                    time_col = signal_info.get('time_column', 'time')
+
+                    if reader is None:
+                        logger.error(f"[STATS] Memory-mapped signal '{name}' has no mpai_reader")
+                        continue
+
+                    # 1. Check if this is the Python MpaiDirectoryReader (has get_statistics_snapshot)
+                    if hasattr(reader, 'get_statistics_snapshot') and hasattr(reader, 'name_to_id'):
                             # Use the new Directory Reader API
                             try:
                                 # Get Channel ID (required for Reader API)
@@ -1158,25 +1159,25 @@ class SignalProcessor(QObject):
                                 logger.error(f"[STATS] MpaiDirectoryReader failed for '{name}': {e}")
                                 continue
 
-                        # 2. Pure Python: Load from reader and calculate with NumPy
-                        try:
-                            row_count = reader.get_row_count()
-                            if time_range is not None:
-                                start_time, end_time = time_range
-                                raw_time = np.asarray(reader.load_column_slice(time_col, 0, row_count), dtype=np.float64)
-                                mask = (raw_time >= start_time) & (raw_time <= end_time)
-                                raw_data = np.asarray(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
-                                y_subset = raw_data[mask]
-                                x_subset = raw_time[mask]
-                            else:
-                                y_subset = np.asarray(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
-                                x_subset = None
+                    # 2. Pure Python: Load from reader and calculate with NumPy
+                    try:
+                        row_count = reader.get_row_count()
+                        if time_range is not None:
+                            start_time, end_time = time_range
+                            raw_time = np.asarray(reader.load_column_slice(time_col, 0, row_count), dtype=np.float64)
+                            mask = (raw_time >= start_time) & (raw_time <= end_time)
+                            raw_data = np.asarray(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
+                            y_subset = raw_data[mask]
+                            x_subset = raw_time[mask]
+                        else:
+                            y_subset = np.asarray(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
+                            x_subset = None
 
-                            stats = self._calc_numpy_stats(y_subset, x_subset)
-                            results[name] = stats
-                        except Exception as e:
-                            logger.error(f"[STATS] Python reader stats failed for '{name}': {e}")
-                        continue
+                        stats = self._calc_numpy_stats(y_subset, x_subset)
+                        results[name] = stats
+                    except Exception as e:
+                        logger.error(f"[STATS] Python reader stats failed for '{name}': {e}")
+                    continue
                 
                 # ========== CSV SIGNALS: Use in-memory x_data/y_data ==========
                 x_data = signal_info.get('x_data')
