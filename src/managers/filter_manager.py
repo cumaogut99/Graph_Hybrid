@@ -364,14 +364,14 @@ class FilterManager:
         logger.info(f"[FILTER THREADED] Data source check complete: mpai={mpai_reader is not None}, polars={polars_df is not None}")
         logger.info(f"[FILTER THREADED] C++ available: {CppFilterCalculationWorker.is_cpp_available()}")
 
-        if mpai_reader is not None and CppFilterCalculationWorker.is_cpp_available():
-            logger.info("[FILTER] Using C++ streaming filter for MPAI data")
+        if mpai_reader is not None:
+            logger.info("[FILTER] Using pure Python streaming filter for MPAI data")
             calculation_worker = CppFilterCalculationWorker(
                 all_signals,
                 conditions,
                 mpai_reader=mpai_reader,
                 time_column_name=time_column_name,
-                use_cpp=True,
+                use_cpp=False,
             )
             logger.info("[FILTER THREADED] CppFilterCalculationWorker created")
         elif polars_df is not None and time_column_name:
