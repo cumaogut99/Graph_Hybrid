@@ -18,3 +18,4 @@ pillow>=8.0.0
 
 # Ek Kütüphaneler
 openpyxl>=3.0.0  # Excel dosya desteği için
+nptdms>=1.7.0    # NI TDMS dosya desteği için (TDM/TDX kendi ayrıştırıcımızla okunur)

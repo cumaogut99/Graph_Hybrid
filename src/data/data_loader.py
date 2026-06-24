@@ -245,8 +245,19 @@ class DataLoader(QObject):
                 logger.warning(f"Failed to save settings marker: {e}")
             
             self.progress.emit("Conversion complete, opening file...", 98)
+
+            # TDM/TDX/TDMS gibi formatlar için oluşturulan ara CSV artık gereksiz
+            # (MPAI hazır). Geçici dosyayı temizle.
+            intermediate_csv = self.settings.get('_intermediate_source_csv')
+            if intermediate_csv and intermediate_csv == file_path and os.path.exists(intermediate_csv):
+                try:
+                    os.remove(intermediate_csv)
+                    logger.info(f"Removed intermediate source CSV: {intermediate_csv}")
+                except OSError as e:
+                    logger.debug(f"Could not remove intermediate CSV: {e}")
+
             return self._load_mpai(mpai_path)
-            
+
         except Exception as e:
             raise ValueError(f"CSV işlenemedi: {e}")
 

@@ -13,6 +13,8 @@ Refactored from: app.py (TimeGraphApp sınıfı)
 
 import logging
 import os
+import hashlib
+import tempfile
 from typing import Optional, Dict, Any
 import polars as pl
 from PyQt5.QtWidgets import QFileDialog, QMessageBox, QDialog
@@ -21,6 +23,10 @@ from PyQt5.QtCore import QThread, pyqtSignal as Signal
 # Import DataImportDialog ve DataLoader
 from src.data.data_import_dialog import DataImportDialog
 from src.data.data_loader import DataLoader
+from src.data.scientific_data_importer import (
+    is_scientific_file,
+    ScientificFileConverter,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,9 @@ class DataOperations:
         self.save_thread = None
         self.load_worker = None
         self.is_loading_cancelled = False  # Flag to prevent callbacks after cancel
+        # TDM/TDX/TDMS -> ara CSV dönüştürme için thread takibi
+        self.convert_thread = None
+        self.convert_worker = None
         
         # Connect to loading manager cancel signal
         if hasattr(main_window, 'loading_manager'):
@@ -53,37 +62,162 @@ class DataOperations:
         Refactored from: app.py -> TimeGraphApp._on_file_open()
         """
         logger.info("Dosya açma işlemi başlatıldı")
-        
+
         # Desteklenen dosya formatları
         file_filter = (
-            "Veri Dosyaları (*.csv *.xlsx *.xls);;",
+            "Veri Dosyaları (*.csv *.xlsx *.xls *.tdms *.tdm *.tdx);;",
             "CSV Dosyaları (*.csv);;",
             "Excel Dosyaları (*.xlsx *.xls);;",
+            "TDMS Dosyaları (*.tdms);;",
+            "TDM/TDX Dosyaları (*.tdm *.tdx);;",
             "Tüm Dosyalar (*.*)"
         )
-        
+
         file_path, _ = QFileDialog.getOpenFileName(
             self.main_window,
             "Veri Dosyası Seç",
             "",
             "".join(file_filter)
         )
-        
-        if file_path:
 
-            
-            # Gelişmiş import dialog'unu aç
-            import_dialog = DataImportDialog(file_path, self.main_window)
-            if import_dialog.exec_() == QDialog.Accepted:
-                # Import ayarlarını al
-                settings = import_dialog.get_import_settings()
-                self.load_data_with_settings(settings)
-                return True
-            else:
-                logger.info("Dosya import işlemi iptal edildi")
-                return False
-        
+        if not file_path:
+            return False
+
+        # TDM/TDX/TDMS dosyaları önce bir ara CSV'ye dönüştürülür; ardından
+        # CSV ile aynı import dialog'u + MPAI boru hattı kullanılır.
+        if is_scientific_file(file_path):
+            self._start_scientific_conversion(file_path)
+            return True
+
+        # CSV / Excel: doğrudan import dialog'unu aç
+        return self._open_import_dialog(file_path)
+
+    def _open_import_dialog(self, file_path: str, original_path: Optional[str] = None) -> bool:
+        """
+        Import dialog'unu aç ve onaylanırsa yüklemeyi başlat.
+
+        Args:
+            file_path: Önizleme/okuma için kullanılacak yol (CSV).
+            original_path: Kullanıcının seçtiği asıl dosya (TDM/TDX/TDMS ise),
+                           başlıkta gösterilir ve önbellek anahtarı olarak kullanılır.
+        """
+        import_dialog = DataImportDialog(file_path, self.main_window)
+        if original_path:
+            # Başlıkta asıl dosya adını göster (ara CSV adı yerine) ve ara CSV
+            # UTF-8 yazıldığı için encoding'i UTF-8'e ayarla.
+            try:
+                import_dialog.setWindowTitle(f"Veri Import - {os.path.basename(original_path)}")
+                if hasattr(import_dialog, 'file_info_label'):
+                    import_dialog.file_info_label.setText(f"📁 {os.path.basename(original_path)}")
+                if hasattr(import_dialog, 'encoding_combo'):
+                    import_dialog.encoding_combo.setCurrentText('utf-8')
+            except Exception:
+                pass
+
+        if import_dialog.exec_() == QDialog.Accepted:
+            settings = import_dialog.get_import_settings()
+            if original_path:
+                # Yükleme tamamlandığında silinmesi için ara CSV'yi işaretle
+                settings['_intermediate_source_csv'] = file_path
+                settings['_original_source_path'] = original_path
+            self.load_data_with_settings(settings)
+            return True
+
+        logger.info("Dosya import işlemi iptal edildi")
+        # İptal edilirse ara CSV'yi temizle
+        if original_path:
+            self._cleanup_intermediate_csv(file_path)
         return False
+
+    def _start_scientific_conversion(self, file_path: str):
+        """TDM/TDX/TDMS dosyasını ara CSV'ye dönüştürmeyi (overlay ile) başlat."""
+        filename = os.path.basename(file_path)
+        logger.info(f"[SCIENTIFIC] Converting {filename} to intermediate CSV...")
+
+        # Ara CSV için benzersiz bir geçici yol oluştur
+        local_app_data = os.environ.get('LOCALAPPDATA', tempfile.gettempdir())
+        temp_cache_dir = os.path.join(local_app_data, 'TimeGraph', 'cache')
+        os.makedirs(temp_cache_dir, exist_ok=True)
+        stem = os.path.splitext(filename)[0]
+        file_hash = hashlib.md5(file_path.encode()).hexdigest()[:8]
+        csv_path = os.path.join(temp_cache_dir, f"{stem}_{file_hash}.import.csv")
+
+        # İlerleme overlay'ini başlat
+        self.is_loading_cancelled = False
+        if hasattr(self.main_window, 'loading_manager'):
+            self.main_window.loading_manager.start_operation(
+                "file_loading",
+                f"{filename} dönüştürülüyor...",
+                subtitle="TDM/TDX/TDMS verisi içe aktarmaya hazırlanıyor",
+            )
+
+        # Dönüştürmeyi thread'de çalıştır
+        thread = QThread()
+        worker = ScientificFileConverter(file_path, csv_path)
+        worker.moveToThread(thread)
+        self.convert_thread = thread
+        self.convert_worker = worker
+        # İptal mekanizmasının erişebilmesi için aktif worker olarak işaretle
+        self.load_worker = worker
+
+        thread.started.connect(worker.run)
+        worker.progress.connect(
+            lambda msg, pct: self._on_convert_progress(msg, pct)
+        )
+        worker.finished.connect(lambda out: self._on_scientific_converted(out, file_path))
+        worker.error.connect(lambda err: self._on_scientific_error(err, filename))
+
+        # Temizlik
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.error.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        thread.start()
+
+    def _on_convert_progress(self, msg: str, pct: int):
+        if self.is_loading_cancelled:
+            return
+        if hasattr(self.main_window, 'loading_manager'):
+            self.main_window.loading_manager.update_operation("file_loading", msg, pct)
+
+    def _on_scientific_converted(self, csv_path: str, original_path: str):
+        """Ara CSV hazır: overlay'i kapat ve import dialog'unu aç."""
+        self.convert_worker = None
+        self.convert_thread = None
+        self.load_worker = None
+        if self.is_loading_cancelled:
+            self._cleanup_intermediate_csv(csv_path)
+            return
+        if hasattr(self.main_window, 'loading_manager'):
+            self.main_window.loading_manager.finish_operation("file_loading")
+        # Import dialog'unu asıl dosya adıyla aç
+        self._open_import_dialog(csv_path, original_path=original_path)
+
+    def _on_scientific_error(self, error_msg: str, filename: str):
+        self.convert_worker = None
+        self.convert_thread = None
+        self.load_worker = None
+        if hasattr(self.main_window, 'loading_manager'):
+            self.main_window.loading_manager.finish_operation("file_loading")
+        if self.is_loading_cancelled:
+            return
+        logger.error(f"[SCIENTIFIC] Conversion failed for {filename}: {error_msg}")
+        QMessageBox.critical(
+            self.main_window,
+            "Dosya Dönüştürme Hatası",
+            f"'{filename}' dosyası içe aktarılamadı:\n\n{error_msg}",
+        )
+
+    def _cleanup_intermediate_csv(self, csv_path: Optional[str]):
+        """Ara (geçici) CSV dosyasını sessizce sil."""
+        if csv_path and os.path.exists(csv_path):
+            try:
+                os.remove(csv_path)
+                logger.info(f"[SCIENTIFIC] Removed intermediate CSV: {csv_path}")
+            except OSError as e:
+                logger.debug(f"[SCIENTIFIC] Could not remove intermediate CSV: {e}")
     
     def load_data_with_settings(self, settings: Dict[str, Any]):
         """
