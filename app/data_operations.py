@@ -56,9 +56,12 @@ class DataOperations:
         
         # Desteklenen dosya formatları
         file_filter = (
-            "Veri Dosyaları (*.csv *.xlsx *.xls);;",
+            "Veri Dosyaları (*.csv *.xlsx *.xls *.tdm *.tdx *.tdms);;",
             "CSV Dosyaları (*.csv);;",
             "Excel Dosyaları (*.xlsx *.xls);;",
+            "NI Dosyaları (*.tdm *.tdx *.tdms);;",
+            "TDM/TDX Dosyaları (*.tdm *.tdx);;",
+            "TDMS Dosyaları (*.tdms);;",
             "Tüm Dosyalar (*.*)"
         )
         
@@ -104,9 +107,15 @@ class DataOperations:
             logger.info(f"[LOAD] Starting new file load: {filename}")
             
             if hasattr(self.main_window, 'loading_manager'):
-                # Add subtitle for CSV files to indicate conversion
-                subtitle = "Converting CSV to MPAI for better performance" if file_path.endswith('.csv') else ""
-                self.main_window.loading_manager.start_operation("file_loading", f"Loading {filename}...", subtitle=subtitle)
+                ext = os.path.splitext(file_path)[1].lower()
+                if ext == '.csv':
+                    subtitle = "CSV → MPAI dönüşümü yapılıyor..."
+                elif ext in ('.tdm', '.tdx', '.tdms'):
+                    fmt = ext.lstrip('.').upper()
+                    subtitle = f"{fmt} → MPAI dönüşümü yapılıyor..."
+                else:
+                    subtitle = ""
+                self.main_window.loading_manager.start_operation("file_loading", f"{filename} yükleniyor...", subtitle=subtitle)
             if hasattr(self.main_window, 'status_bar'):
                 self.main_window.status_bar.set_operation("File Loading", 0)
             

@@ -74,7 +74,7 @@ class DataPreviewThread(QThread):
         try:
             # Dosya uzantısına göre okuma yöntemi belirle
             file_ext = os.path.splitext(self.file_path)[1].lower()
-            
+
             if file_ext == '.csv':
                 # Always use manual line reading to properly handle header_row and start_row
                 df = self._read_csv_with_manual_skip()
@@ -92,7 +92,7 @@ class DataPreviewThread(QThread):
                 df = df.head(100)  # İlk 100 satır
             elif file_ext == '.mpai':
                 # MPAI dosyası — Python reader
-                from src.data.data_loader import MpaiDirectoryReader
+                from src.data.data_reader import MpaiDirectoryReader
                 reader = MpaiDirectoryReader(self.file_path)
                 count = reader.get_row_count()
                 preview_count = min(count, 100)
@@ -105,6 +105,10 @@ class DataPreviewThread(QThread):
                         logger.warning(f"Preview column '{col}' failed: {e}")
                         data[col] = [None] * preview_count
                 df = pl.DataFrame(data)
+            elif file_ext in ('.tdm', '.tdx'):
+                df = self._read_ni_preview_tdm()
+            elif file_ext == '.tdms':
+                df = self._read_ni_preview_tdms()
             else:
                 # Genel okuma denemesi - CSV gibi işle
                 df = self._read_csv_with_manual_skip()
@@ -228,6 +232,44 @@ class DataPreviewThread(QThread):
                 try_parse_dates=False
             )
 
+    def _read_ni_preview_tdm(self):
+        """Load first 100 rows from a TDM/TDX file pair."""
+        from src.data.tdm_reader import TdmReader
+        reader = TdmReader(self.file_path)
+        names  = reader.get_channel_names()
+        n_rows = min(reader.get_row_count(), 100)
+        data   = {}
+        for name in names:
+            try:
+                arr = reader.read_channel(name, start=0, count=n_rows)
+                data[name] = arr.tolist()
+            except Exception as exc:
+                logger.warning(f"TDM preview channel '{name}' failed: {exc}")
+                data[name] = [None] * n_rows
+        return pl.DataFrame(data)
+
+    def _read_ni_preview_tdms(self):
+        """Load first 100 rows from a TDMS file."""
+        from src.data.tdms_reader import TdmsReader
+        if not TdmsReader.is_available():
+            raise ImportError(
+                "TDMS önizleme için nptdms gereklidir.\n"
+                "Kurulum: pip install nptdms"
+            )
+        reader = TdmsReader(self.file_path)
+        names  = reader.get_channel_names()
+        n_rows = min(reader.get_row_count(), 100)
+        data   = {}
+        for name in names:
+            try:
+                arr = reader.read_channel(name, start=0, count=n_rows)
+                data[name] = arr.tolist()
+            except Exception as exc:
+                logger.warning(f"TDMS preview channel '{name}' failed: {exc}")
+                data[name] = [None] * n_rows
+        return pl.DataFrame(data)
+
+
 class DataImportDialog(QDialog):
     """Gelişmiş veri import dialog'u."""
     
@@ -237,15 +279,20 @@ class DataImportDialog(QDialog):
         self.preview_df = None
         self.metadata = None
         self.preview_thread = None
-        
+
         self.selected_time_column = None
         self.selected_encoding = 'utf-8'
         self.selected_delimiter = ','
         self.selected_header_row = 0
         self.selected_start_row = 0
-        
+
+        ext = os.path.splitext(file_path)[1].lower()
+        self._is_binary_format = ext in ('.tdm', '.tdx', '.tdms')
+        self._file_format = ext.lstrip('.')  # e.g. 'tdm', 'tdx', 'tdms', 'csv'
+
         self._setup_ui()
         self._setup_connections()
+        self._configure_for_file_type()
         self._load_initial_preview()
         
     def _setup_ui(self):
@@ -561,6 +608,34 @@ class DataImportDialog(QDialog):
         
         return group
         
+    def _configure_for_file_type(self):
+        """Disable text-format controls when a binary NI format is loaded."""
+        if not self._is_binary_format:
+            return
+
+        fmt = self._file_format.upper()
+
+        # Title
+        self.setWindowTitle(
+            f"Veri Import - {os.path.basename(self.file_path)} [{fmt}]"
+        )
+
+        # Encoding / delimiter / auto-detect — not applicable
+        self.encoding_combo.setEnabled(False)
+        self.delimiter_combo.setEnabled(False)
+        self.auto_detect_btn.setEnabled(False)
+
+        # Header & row settings — binary formats carry their own metadata
+        self.header_spinbox.setEnabled(False)
+        self.has_header_checkbox.setEnabled(False)
+        self.has_header_checkbox.setChecked(False)
+        self.start_row_spinbox.setEnabled(False)
+
+        # Informational tooltip on disabled groups
+        for w in (self.encoding_combo, self.delimiter_combo,
+                  self.header_spinbox, self.start_row_spinbox):
+            w.setToolTip(f"{fmt} ikili formatı için geçerli değil")
+
     def _create_button_panel(self):
         """Alt buton paneli oluştur - kompakt."""
         layout = QHBoxLayout()
@@ -1123,13 +1198,18 @@ class DataImportDialog(QDialog):
         time_format = time_format_map.get(time_format_display, 'Otomatik')
         
         settings = {
-            'file_path': self.file_path,
-            'encoding': self.encoding_combo.currentText(),
-            'delimiter': delimiter,
-            'header_row': self.header_spinbox.value() if self.has_header_checkbox.isChecked() else None,
-            'start_row': self.start_row_spinbox.value(),
-            'time_mode': time_mode,
-            'create_custom_time': is_custom_time
+            'file_path':    self.file_path,
+            'file_format':  self._file_format,
+            'encoding':     self.encoding_combo.currentText(),
+            'delimiter':    delimiter,
+            'header_row':   (self.header_spinbox.value()
+                             if (self.has_header_checkbox.isChecked()
+                                 and not self._is_binary_format)
+                             else None),
+            'start_row':    (self.start_row_spinbox.value()
+                             if not self._is_binary_format else 0),
+            'time_mode':    time_mode,
+            'create_custom_time': is_custom_time,
         }
         
         if is_custom_time:

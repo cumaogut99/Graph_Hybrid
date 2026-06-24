@@ -98,11 +98,15 @@ class DataLoader(QObject):
         # 2. CSV Loading (Convert -> Load)
         if file_ext == '.csv':
             return self._load_csv_as_mpai(file_path)
-            
-        # 3. Excel (Not Supported in Streaming Architecture)
+
+        # 3. NI TDM/TDX/TDMS Loading
+        if file_ext in ('.tdm', '.tdx', '.tdms'):
+            return self._load_ni_as_mpai(file_path)
+
+        # 4. Excel (Not Supported in Streaming Architecture)
         if file_ext in ['.xlsx', '.xls']:
             raise ValueError("Excel dosyaları performans mimarisinde desteklenmemektedir. Lütfen CSV'ye çevirin.")
-            
+
         raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
 
     def _load_csv_as_mpai(self, file_path):
@@ -249,6 +253,59 @@ class DataLoader(QObject):
             
         except Exception as e:
             raise ValueError(f"CSV işlenemedi: {e}")
+
+    def _load_ni_as_mpai(self, file_path: str):
+        """Convert a NI TDM/TDX/TDMS file to MPAI directory and load it."""
+        try:
+            local_app_data = os.environ.get('LOCALAPPDATA', tempfile.gettempdir())
+            temp_cache_dir = os.path.join(local_app_data, 'TimeGraph', 'cache')
+            os.makedirs(temp_cache_dir, exist_ok=True)
+
+            file_name  = os.path.splitext(os.path.basename(file_path))[0]
+            file_hash  = hashlib.md5(file_path.encode()).hexdigest()[:8]
+            mpai_path  = os.path.join(temp_cache_dir, f"{file_name}_{file_hash}.mpai")
+
+            self.settings['_temp_mpai_path'] = mpai_path
+            self.settings['_is_temp_file']   = True
+
+            # Use valid cache when source file hasn't changed
+            if os.path.exists(mpai_path):
+                mpai_mtime = (
+                    max(os.path.getmtime(os.path.join(mpai_path, f))
+                        for f in os.listdir(mpai_path)
+                        if os.path.isfile(os.path.join(mpai_path, f)))
+                    if os.path.isdir(mpai_path) else
+                    os.path.getmtime(mpai_path)
+                )
+                if mpai_mtime > os.path.getmtime(file_path):
+                    logger.info("NI önbellek kullanılıyor: %s", mpai_path)
+                    self.progress.emit("Önbellekten yükleniyor...", 10)
+                    return self._load_mpai(mpai_path)
+                import shutil
+                try:
+                    shutil.rmtree(mpai_path) if os.path.isdir(mpai_path) else os.remove(mpai_path)
+                except Exception:
+                    pass
+
+            self.progress.emit("NI formatı MPAI'ye dönüştürülüyor...", 0)
+
+            def _progress_cb(msg: str, pct: int):
+                self.progress.emit(msg, pct)
+
+            from src.data.ni_to_mpai_converter import NiToMpaiConverter
+            self.converter = NiToMpaiConverter(file_path, mpai_path, settings=self.settings)
+            self.converter.progress.connect(_progress_cb)
+            success = self.converter.convert()
+            self.converter = None
+
+            if not success:
+                raise ValueError("NI format dönüşümü başarısız oldu")
+
+            self.progress.emit("Dönüşüm tamam, dosya açılıyor...", 98)
+            return self._load_mpai(mpai_path)
+
+        except Exception as exc:
+            raise ValueError(f"NI dosyası işlenemedi: {exc}") from exc
 
     def _load_mpai(self, file_path):
         """Load MPAI file using appropriate reader (Directory-based or C++ Legacy)."""
