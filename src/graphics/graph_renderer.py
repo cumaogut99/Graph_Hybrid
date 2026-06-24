@@ -712,8 +712,11 @@ class GraphRenderer:
                 if mpai_reader and time_col and metadata.get("mpai"):
                     try:
                         sample_rate = 1.0
-                        start_time_meta = metadata.get("start_time", 0.0)
-                        end_time_meta = metadata.get("end_time", 1.0)
+                        full_time_range = metadata.get("full_time_range")
+                        if full_time_range and len(full_time_range) == 2:
+                            start_time_meta, end_time_meta = full_time_range
+                        else:
+                            start_time_meta, end_time_meta = 0.0, 1.0
 
                         duration = max(end_time_meta - start_time_meta, 1e-9)
                         if full_count > 1:

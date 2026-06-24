@@ -31,16 +31,44 @@ _DTYPE_MAP: Dict[str, type] = {
 }
 
 
+def _local(tag: str) -> str:
+    """Strip namespace URI and return just the local element name."""
+    return tag[tag.index('}') + 1:] if tag.startswith('{') else tag
+
+
+def _find_all_by_local(root: ET.Element, local_name: str) -> List[ET.Element]:
+    """Find all descendants whose local name equals *local_name* (namespace-agnostic)."""
+    return [el for el in root.iter() if _local(el.tag) == local_name]
+
+
+def _child_text(el: ET.Element, local_name: str, default: str = '') -> str:
+    """Return the text of the first direct child whose local name matches."""
+    for child in el:
+        if _local(child.tag) == local_name:
+            return (child.text or '').strip()
+    return default
+
+
+def _child_el(el: ET.Element, local_name: str) -> Optional[ET.Element]:
+    for child in el:
+        if _local(child.tag) == local_name:
+            return child
+    return None
+
+
 class TdmReader:
     """
     Read NI TDM/TDX file pairs.
+
+    Uses namespace-agnostic XML parsing so it works with any TDM variant
+    (DIAdem, NI LabVIEW export, third-party writers, etc.).
 
     Usage::
 
         reader = TdmReader('data.tdm')   # or 'data.tdx'
         names  = reader.get_channel_names()
         arr    = reader.read_channel('Time')
-        d      = reader.to_dict()          # all channels
+        d      = reader.to_dict()
     """
 
     def __init__(self, path: str):
@@ -68,37 +96,17 @@ class TdmReader:
 
         root = tree.getroot()
 
-        # Detect optional namespace URI
-        ns_uri = ''
-        if root.tag.startswith('{'):
-            ns_uri = root.tag[1:root.tag.index('}')]
-
-        def _path(p: str) -> str:
-            if ns_uri:
-                return p.replace('usi:', f'{{{ns_uri}}}')
-            return p.replace('usi:', '')
-
-        def fnd(el, p):
-            return el.find(_path(p))
-
-        def fndall(el, p):
-            return el.findall(_path(p))
-
-        def txt(el, p, default='') -> str:
-            child = fnd(el, p)
-            return (child.text or '').strip() if child is not None else default
-
-        def attr(el, name, default='') -> str:
-            return (el.get(name) or '').strip()
-
-        # Resolve TDX path from XML <include>
-        file_el = fnd(root, './/usi:include/file')
-        if file_el is not None:
-            url = attr(file_el, 'url')
-            if url:
-                candidate = os.path.join(os.path.dirname(self.tdm_path), url)
-                if os.path.exists(candidate):
-                    self.tdx_path = candidate
+        # ----------------------------------------------------------------
+        # Resolve TDX path from <include><file url="..."/></include>
+        # Works regardless of namespace
+        for el in root.iter():
+            if _local(el.tag) == 'file':
+                url = el.get('url', '')
+                if url:
+                    candidate = os.path.join(os.path.dirname(self.tdm_path), url)
+                    if os.path.exists(candidate):
+                        self.tdx_path = candidate
+                break
 
         if self.tdx_path is None:
             self.tdx_path = os.path.splitext(self.tdm_path)[0] + '.tdx'
@@ -106,55 +114,69 @@ class TdmReader:
         if not os.path.exists(self.tdx_path):
             raise FileNotFoundError(f"TDX binary file not found: {self.tdx_path}")
 
-        # Build id → element lookup for cross-references
+        # ----------------------------------------------------------------
+        # Build id → element map (all elements that carry an 'id' attribute)
         id_map: Dict[str, ET.Element] = {}
         for el in root.iter():
-            eid = attr(el, 'id')
+            eid = el.get('id', '').strip()
             if eid:
                 id_map[eid] = el
 
+        # ----------------------------------------------------------------
         # submatrix → number_of_rows per localColumn
         lc_rows: Dict[str, int] = {}
-        for sm in fndall(root, './/usi:submatrix'):
-            n = int(txt(sm, 'usi:number_of_rows', '0') or '0')
-            for lc_id in txt(sm, 'usi:local_columns', '').split():
+        for sm in _find_all_by_local(root, 'submatrix'):
+            n_text = _child_text(sm, 'number_of_rows', '0')
+            n = int(n_text or '0')
+            lc_ids = _child_text(sm, 'local_columns', '')
+            for lc_id in lc_ids.split():
                 lc_rows[lc_id.strip()] = n
 
-        # block → binary descriptor
+        # ----------------------------------------------------------------
+        # block → binary descriptor  (supports both <block> and <block_bdf>)
         block_info: Dict[str, tuple] = {}
-        for blk in fndall(root, './/usi:block'):
-            bid = attr(blk, 'id')
+        for blk in list(_find_all_by_local(root, 'block')) + list(_find_all_by_local(root, 'block_bdf')):
+            bid = blk.get('id', '').strip()
             if bid:
-                offset  = int(txt(blk, 'usi:blockOffset', '0') or '0')
-                length  = int(txt(blk, 'usi:length',      '0') or '0')
-                vtype   = txt(blk, 'usi:valueType',  'eFloat64Usi')
-                border  = txt(blk, 'usi:byteOrder',  'littleEndian')
-                block_info[bid] = (offset, length, vtype, border)
+                offset = int(_child_text(blk, 'blockOffset',  '0') or '0')
+                length = int(_child_text(blk, 'length',       '0') or '0')
+                vtype  =    _child_text(blk, 'valueType',  'eFloat64Usi') or \
+                            _child_text(blk, 'value_type', 'eFloat64Usi')
+                border =    _child_text(blk, 'byteOrder',  'littleEndian') or \
+                            _child_text(blk, 'byte_order', 'littleEndian')
+                block_info[bid] = (offset, length, vtype or 'eFloat64Usi',
+                                   border or 'littleEndian')
 
+        # ----------------------------------------------------------------
         # localColumn → block reference
         lc_info: Dict[str, tuple] = {}
-        for lc in fndall(root, './/usi:localColumn'):
-            lc_id = attr(lc, 'id')
+        for lc in _find_all_by_local(root, 'localColumn'):
+            lc_id = lc.get('id', '').strip()
             if lc_id:
-                vtype     = txt(lc, 'usi:values_type', '')
-                values_el = fnd(lc, 'usi:values')
-                block_ref = attr(values_el, 'ref_id') if values_el is not None else ''
+                vtype = (_child_text(lc, 'values_type', '') or
+                         _child_text(lc, 'value_type', ''))
+                values_el = _child_el(lc, 'values')
+                block_ref = (values_el.get('ref_id', '').strip()
+                             if values_el is not None else '')
                 lc_info[lc_id] = (block_ref, vtype)
 
+        # ----------------------------------------------------------------
         # channel groups → channels
-        for cg in fndall(root, './/usi:channelGroup'):
-            gname = txt(cg, 'usi:name', 'Group') or 'Group'
-            self._groups.setdefault(gname, [])
+        groups_found: Dict[str, List[str]] = {}
 
-            for ch in fndall(cg, './/usi:channel'):
-                cname = txt(ch, 'usi:name', 'Channel') or 'Channel'
-                unit  = txt(ch, 'usi:unit_string', '')
+        for cg in _find_all_by_local(root, 'channelGroup'):
+            gname = _child_text(cg, 'name', 'Group') or 'Group'
+            groups_found.setdefault(gname, [])
 
-                values_el = fnd(ch, 'usi:values')
+            for ch in _find_all_by_local(cg, 'channel'):
+                cname = _child_text(ch, 'name', 'Channel') or 'Channel'
+                unit  = _child_text(ch, 'unit_string', '') or _child_text(ch, 'unit', '')
+
+                values_el = _child_el(ch, 'values')
                 if values_el is None:
                     continue
 
-                lc_ref = attr(values_el, 'ref_id')
+                lc_ref = values_el.get('ref_id', '').strip()
                 if not lc_ref or lc_ref not in lc_info:
                     continue
 
@@ -179,9 +201,20 @@ class TdmReader:
                     'unit':       unit,
                     'byte_order': border,
                 }
-                self._groups[gname].append(cname)
+                groups_found[gname].append(cname)
 
-        # If multiple groups share the same channel name, prefix with group
+        self._groups = groups_found
+
+        # ----------------------------------------------------------------
+        # If no channels found via channelGroup, try flat <channel> elements
+        if not self._channels:
+            logger.warning(
+                "[TDM] No channels via channelGroup — trying flat scan"
+            )
+            self._parse_flat(root, id_map, lc_info, lc_rows, block_info)
+
+        # ----------------------------------------------------------------
+        # Prefix channel names with group name when multiple groups exist
         if len(self._groups) > 1:
             new_ch: Dict[str, dict] = {}
             new_gr: Dict[str, List[str]] = {}
@@ -197,11 +230,65 @@ class TdmReader:
             self._channels = new_ch
             self._groups   = new_gr
 
+        if not self._channels:
+            # Log XML structure for debugging
+            logger.error(
+                "[TDM] Could not find any channels. Root tag: %s, "
+                "Child tags: %s",
+                root.tag,
+                [_local(c.tag) for c in list(root)[:15]],
+            )
+            logger.error(
+                "[TDM] All localColumn ids: %s | All block ids: %s",
+                list(lc_info.keys())[:10],
+                list(block_info.keys())[:10],
+            )
+
         logger.info(
             "[TDM] %d channels from %d groups — TDX: %s",
             len(self._channels), len(self._groups),
-            os.path.basename(self.tdx_path),
+            os.path.basename(self.tdx_path or ''),
         )
+
+    def _parse_flat(self, root, id_map, lc_info, lc_rows, block_info):
+        """Fallback: find <channel> elements anywhere in the tree."""
+        gname = 'Group'
+        self._groups.setdefault(gname, [])
+
+        for ch in _find_all_by_local(root, 'channel'):
+            cname = _child_text(ch, 'name', '') or ch.get('id', 'Channel')
+            unit  = _child_text(ch, 'unit_string', '') or _child_text(ch, 'unit', '')
+
+            values_el = _child_el(ch, 'values')
+            if values_el is None:
+                continue
+
+            lc_ref = values_el.get('ref_id', '').strip()
+            if not lc_ref or lc_ref not in lc_info:
+                continue
+
+            block_ref, vtype = lc_info[lc_ref]
+            n_rows = lc_rows.get(lc_ref, 0)
+
+            if not block_ref or block_ref not in block_info:
+                continue
+
+            offset, length, btype, border = block_info[block_ref]
+            resolved = vtype or btype or 'eFloat64Usi'
+            dtype = _DTYPE_MAP.get(resolved, np.float64)
+
+            if n_rows == 0 and length > 0 and dtype != np.object_:
+                n_rows = length // np.dtype(dtype).itemsize
+
+            self._channels[cname] = {
+                'group':      gname,
+                'dtype':      dtype,
+                'offset':     offset,
+                'count':      n_rows,
+                'unit':       unit,
+                'byte_order': border,
+            }
+            self._groups[gname].append(cname)
 
     # ------------------------------------------------------------------
     def get_channel_names(self) -> List[str]:
@@ -225,7 +312,7 @@ class TdmReader:
         start: int = 0,
         count: Optional[int] = None,
     ) -> np.ndarray:
-        """Read *count* samples starting at *start* for channel *name*."""
+        """Read *count* samples from *start* index for channel *name*."""
         if name not in self._channels:
             raise KeyError(
                 f"Channel '{name}' not found. "
@@ -239,7 +326,7 @@ class TdmReader:
         border = info['byte_order']
 
         if dtype == np.object_:
-            logger.warning("[TDM] String channel '%s' not supported, returning empty.", name)
+            logger.warning("[TDM] String channel '%s' not supported.", name)
             return np.array([], dtype=np.float64)
 
         if count is None:

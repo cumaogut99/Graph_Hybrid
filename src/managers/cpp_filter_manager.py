@@ -109,43 +109,90 @@ class CppFilterCalculationWorker(QObject):
             return preferred or "time"
 
     # ------------------------------------------------------------------
+    _CHUNK_ROWS = 500_000  # rows per chunk — ~4 MB per float64 column
+
     def _calculate_from_mpai_reader(self) -> list:
-        """Load raw column data from MPAI reader and apply NumPy filter."""
+        """Load column data from MPAI reader in chunks and apply NumPy filter.
+
+        Peak RAM = combined_mask (1 byte/row) + one condition chunk (CHUNK_ROWS*8 bytes)
+        instead of loading every condition column in full.
+        """
         if not self.conditions:
             return []
 
         reader = self.mpai_reader
         row_count = reader.get_row_count() if hasattr(reader, "get_row_count") else 0
+        if row_count == 0:
+            return []
 
-        # Load time column
         time_col = self.time_column_name or "time"
-        try:
-            time_data = np.asarray(reader.load_column_slice(time_col, 0, row_count), dtype=np.float64)
-        except Exception as e:
-            logger.warning(f"[FILTER] Cannot load time column '{time_col}': {e}")
-            try:
-                t0, t1 = reader.get_time_range()
-                time_data = np.linspace(t0, t1, row_count, dtype=np.float64)
-            except Exception:
-                return []
+        chunk = self._CHUNK_ROWS
+        n_conditions = len(self.conditions)
 
-        combined_mask = np.ones(len(time_data), dtype=bool)
+        # combined_mask: 1 byte per row — stays in RAM throughout
+        combined_mask = np.ones(row_count, dtype=bool)
 
-        for condition in self.conditions:
+        for cond_idx, condition in enumerate(self.conditions):
             if self.should_stop:
                 return []
             param = condition["parameter"]
             ranges = condition["ranges"]
+
+            for chunk_start in range(0, row_count, chunk):
+                if self.should_stop:
+                    return []
+                chunk_len = min(chunk, row_count - chunk_start)
+                try:
+                    col_chunk = np.asarray(
+                        reader.load_column_slice(param, chunk_start, chunk_len),
+                        dtype=np.float64,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "[FILTER] Cannot load chunk of '%s' [%d:%d]: %s",
+                        param, chunk_start, chunk_start + chunk_len, exc,
+                    )
+                    # Treat unreadable column as all-False for this chunk
+                    combined_mask[chunk_start : chunk_start + chunk_len] = False
+                    continue
+
+                chunk_mask = self._apply_ranges(col_chunk, ranges)
+                combined_mask[chunk_start : chunk_start + chunk_len] &= chunk_mask
+
+            pct = int((cond_idx + 1) / n_conditions * 80)
+            self.progress.emit(pct)
+
+        if not np.any(combined_mask):
+            return []
+
+        # Find segment boundaries as row indices (mask is still in RAM)
+        true_idx = np.where(combined_mask)[0]
+        del combined_mask
+
+        breaks = np.where(np.diff(true_idx) > 1)[0]
+        seg_row_starts = np.concatenate(([true_idx[0]], true_idx[breaks + 1]))
+        seg_row_ends   = np.concatenate((true_idx[breaks], [true_idx[-1]]))
+        del true_idx
+
+        # Load time values only for each segment's row range
+        segments = []
+        for s_row, e_row in zip(seg_row_starts.tolist(), seg_row_ends.tolist()):
+            seg_len = int(e_row) - int(s_row) + 1
             try:
-                col_data = np.asarray(reader.load_column_slice(param, 0, row_count), dtype=np.float64)
-            except Exception as e:
-                logger.warning(f"[FILTER] Cannot load column '{param}': {e}")
-                continue
+                t_vals = np.asarray(
+                    reader.load_column_slice(time_col, int(s_row), seg_len),
+                    dtype=np.float64,
+                )
+                if len(t_vals) > 0:
+                    segments.append((float(t_vals[0]), float(t_vals[-1])))
+            except Exception as exc:
+                logger.warning(
+                    "[FILTER] Cannot load time for segment [%d, %d]: %s",
+                    s_row, e_row, exc,
+                )
 
-            param_mask = self._apply_ranges(col_data, ranges)
-            combined_mask &= param_mask
-
-        return self._mask_to_segments(time_data, combined_mask)
+        self.progress.emit(100)
+        return segments
 
     # ------------------------------------------------------------------
     def _calculate_from_signals(self) -> list:
