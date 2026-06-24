@@ -214,6 +214,14 @@ class TdmReader:
             self._parse_flat(root, id_map, lc_info, lc_rows, block_info)
 
         # ----------------------------------------------------------------
+        # Last resort: old TDM format where <block> elements ARE the channels
+        if not self._channels and block_info:
+            logger.warning(
+                "[TDM] No channels via flat scan — trying block-as-channel mode"
+            )
+            self._parse_from_blocks(root, block_info)
+
+        # ----------------------------------------------------------------
         # Prefix channel names with group name when multiple groups exist
         if len(self._groups) > 1:
             new_ch: Dict[str, dict] = {}
@@ -279,6 +287,38 @@ class TdmReader:
 
             if n_rows == 0 and length > 0 and dtype != np.object_:
                 n_rows = length // np.dtype(dtype).itemsize
+
+            self._channels[cname] = {
+                'group':      gname,
+                'dtype':      dtype,
+                'offset':     offset,
+                'count':      n_rows,
+                'unit':       unit,
+                'byte_order': border,
+            }
+            self._groups[gname].append(cname)
+
+    def _parse_from_blocks(self, root: ET.Element, block_info: Dict[str, tuple]):
+        """Old TDM format: <block> elements carry both binary descriptor and channel name."""
+        gname = 'Group'
+        self._groups.setdefault(gname, [])
+
+        for blk in list(_find_all_by_local(root, 'block')) + list(_find_all_by_local(root, 'block_bdf')):
+            bid = blk.get('id', '').strip()
+            if not bid or bid not in block_info:
+                continue
+
+            cname = _child_text(blk, 'name', '') or bid
+            unit  = _child_text(blk, 'unit_string', '') or _child_text(blk, 'unit', '')
+
+            offset, length, btype, border = block_info[bid]
+            dtype = _DTYPE_MAP.get(btype, np.float64)
+
+            if length == 0:
+                continue
+            n_rows = length // np.dtype(dtype).itemsize
+            if n_rows == 0:
+                continue
 
             self._channels[cname] = {
                 'group':      gname,

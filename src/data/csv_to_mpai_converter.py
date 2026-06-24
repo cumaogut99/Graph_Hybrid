@@ -700,11 +700,18 @@ class CsvToMpaiConverter(QObject):
                     
                     # Handle NaN/Inf
                     if data.dtype.kind in 'fi':
-                         data = np.nan_to_num(data, nan=0.0)
-                    
-                    # Normalize to Float64
+                        data = np.nan_to_num(data, nan=0.0)
+
+                    # Normalize to Float64 — string/object columns get zeros
                     if data.dtype != np.float64:
-                         data = data.astype(np.float64)
+                        try:
+                            data = data.astype(np.float64)
+                        except (ValueError, TypeError):
+                            logger.warning(
+                                "[CSV] Column '%s' cannot be cast to float64, filling with zeros",
+                                col_name,
+                            )
+                            data = np.zeros(current_batch_size, dtype=np.float64)
                          
                     chunk_data[col_name] = data
                 else:
