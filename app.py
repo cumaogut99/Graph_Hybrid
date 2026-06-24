@@ -110,15 +110,9 @@ except ImportError as e:
     print("Lütfen tüm gerekli modüllerin mevcut olduğundan emin olun.")
     sys.exit(1)
 
-<<<<<<< HEAD
 # Setup logging - WARNING level for most modules, DEBUG only for cursor
 logging.basicConfig(
     level=logging.WARNING,  # Default to WARNING level
-=======
-# Setup logging - Production mode: sadece WARNING ve üstü
-logging.basicConfig(
-    level=logging.INFO,  # Temporarily enable INFO for performance profiling
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('time_graph_app.log', encoding='utf-8'),
@@ -127,7 +121,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-<<<<<<< HEAD
 # Cursor debug logging disabled - 4-cursor issue is resolved
 # logging.getLogger('src.managers.cursor_manager').setLevel(logging.DEBUG)
 
@@ -136,8 +129,6 @@ logging.getLogger('app.data_operations').setLevel(logging.INFO)
 logging.getLogger('src.data.data_loader').setLevel(logging.INFO)
 logging.getLogger('src.data.csv_to_mpai_converter').setLevel(logging.INFO)
 
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 # ✅ REFACTORED: OldDataLoader sınıfı kaldırıldı (445 satır)
 # DataLoader artık src.data.data_loader modülünden import ediliyor (satır 69)
 # Bu, kod tekrarını önler ve bakımı kolaylaştırır.
@@ -332,10 +323,7 @@ class TimeGraphApp(QMainWindow):
         self.file_manager.file_switched.connect(self._on_file_switched)
         self.file_manager.file_closed.connect(self._on_file_closed)
         self.file_manager.all_files_closed.connect(self._on_all_files_closed)
-<<<<<<< HEAD
         self.file_manager.save_project_requested.connect(self._on_save_project_before_close)
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
     def _setup_status_bar(self):
         """Durum çubuğunu kur."""
@@ -485,15 +473,12 @@ class TimeGraphApp(QMainWindow):
 
     def on_loading_finished(self, df, time_column):
         """Worker thread'den veri yükleme bittiğinde çağrılır."""
-<<<<<<< HEAD
         # Check if loading was cancelled
         if hasattr(self, 'data_ops') and self.data_ops and self.data_ops.is_loading_cancelled:
             logger.info("[CANCEL] ✓ Loading finished callback blocked - file loading prevented")
             return
         
         logger.info("[LOAD] Processing loaded data...")
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         try:
             file_path = self.load_worker.settings.get('file_path', self.current_file_path)
             filename = os.path.basename(file_path)
@@ -619,14 +604,11 @@ class TimeGraphApp(QMainWindow):
 
     def on_loading_error(self, error_msg):
         """Worker thread'de bir hata oluştuğunda çağrılır."""
-<<<<<<< HEAD
         # Check if loading was cancelled
         if hasattr(self, 'data_ops') and self.data_ops and self.data_ops.is_loading_cancelled:
             logger.info("[CANCEL] ✓ Loading error callback blocked - error suppressed")
             return
         
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         logger.error(f"Dosya yüklenirken hata oluştu (worker'dan): {error_msg}")
         self.loading_manager.finish_operation("file_loading")
         QMessageBox.critical(
@@ -879,7 +861,6 @@ class TimeGraphApp(QMainWindow):
             self.project_ops.open_project_dialog()
         else:
             logger.error("ProjectOperations module not initialized")
-<<<<<<< HEAD
     
     def _on_save_project_before_close(self, file_index: int):
         """
@@ -906,9 +887,6 @@ class TimeGraphApp(QMainWindow):
         else:
             logger.error("ProjectOperations module not initialized")
     
-=======
-
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     def closeEvent(self, event):
         """Pencere kapatma olayı."""
         # Check for unsaved changes in ANY file
@@ -930,7 +908,6 @@ class TimeGraphApp(QMainWindow):
             if reply == QMessageBox.No:
                 event.ignore()
                 return
-<<<<<<< HEAD
         
         # === PROMPT TO SAVE UNSAVED PROJECTS ===
         unsaved_projects = [
@@ -962,8 +939,6 @@ class TimeGraphApp(QMainWindow):
             if file_data.get('settings', {}).get('_is_temp_file', False):
                 self.file_manager._cleanup_temp_files(file_data)
         logger.info("[CLEANUP] All temp files cleaned up on app close")
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 
         # Temizlik işlemleri - tüm widget'ları temizle
         if self.widget_container_manager:

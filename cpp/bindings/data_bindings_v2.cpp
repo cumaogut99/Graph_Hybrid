@@ -1,6 +1,5 @@
 #include "timegraph/data/column.hpp"
 #include "timegraph/data/dataframe.hpp"
-<<<<<<< HEAD
 #include "timegraph/data/lod_format.hpp"
 #include "timegraph/data/lod_reader.hpp"
 #include "timegraph/data/lod_writer.hpp"
@@ -8,11 +7,6 @@
 #include "timegraph/data/mpai_reader.hpp"
 #include "timegraph/data/mpai_writer.hpp"
 #include "timegraph/processing/expression_engine.hpp"
-=======
-#include "timegraph/data/mpai_format.hpp"
-#include "timegraph/data/mpai_reader.hpp"
-#include "timegraph/data/mpai_writer.hpp"
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -20,11 +14,8 @@
 namespace py = pybind11;
 using namespace timegraph;
 using namespace timegraph::mpai;
-<<<<<<< HEAD
 // Note: NOT using timegraph::lod namespace to avoid std:: conflicts
 namespace expr = timegraph::expr; // Alias for expression engine
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
 /// Helper: Convert C++ column to NumPy array (zero-copy)
 py::array_t<double> get_column_as_numpy(const DataFrame &df,
@@ -354,7 +345,6 @@ void init_data_bindings(py::module &m) {
            "Write application state", py::arg("state"))
 
       .def("finalize", &MpaiWriter::finalize, "Finalize MPAI file");
-<<<<<<< HEAD
 
   // ==========================================
   // LodReader (Spike-Safe LOD Reading)
@@ -482,6 +472,4 @@ void init_data_bindings(py::module &m) {
       .def("has_expression", &expr::ExpressionEngine::has_expression)
       .def("get_expression_names",
            &expr::ExpressionEngine::get_expression_names);
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 }
