@@ -1762,7 +1762,8 @@ class TimeGraphWidget(QWidget):
             # ✅ FIX: Extract conditions and mode FIRST before using them
             graph_index = filter_data.get('graph_index', 0)
             conditions = filter_data.get('conditions', [])
-            mode = filter_data.get('mode', 'segmented')
+            # Only concatenated display mode is supported (segmented mode removed)
+            mode = 'concatenated'
             
             # Check if filter can be applied
             can_apply, reason = self.filter_manager.can_apply_filter(mode, target_tab_index)
@@ -1829,14 +1830,20 @@ Devam etmek istiyor musunuz?
                         self._save_graph_setting(i, 'basic_deviation', {})
                 
             container = self.graph_containers[target_tab_index]
-            
+
             # VALIDATION: graph_index container'daki grafik sayısından fazla olmamalı
             max_graphs = container.plot_manager.get_subplot_count()
             if graph_index >= max_graphs:
                 logger.error(f"Invalid graph_index {graph_index} for container with {max_graphs} graphs. Using 0.")
                 graph_index = 0
-            
-            
+
+            # Re-applying while a concatenated filter is already active: restore the
+            # original data first so the new filter applies to the full signal, not
+            # to the previously concatenated (already-filtered) timeline.
+            if conditions and self.filter_manager.is_concatenated_mode_active and self.signal_processor:
+                logger.info("[FILTER] Concatenated filter already active — restoring original data before re-filtering")
+                self.signal_processor.restore_original_data()
+
             # Get all signals data
             all_signals = self.signal_processor.get_all_signals()
             
@@ -2063,65 +2070,57 @@ Devam etmek istiyor musunuz?
             
             # Update graph renderer with current signal mapping
             self.graph_renderer.graph_signal_mapping = self.graph_signal_mapping
-            
-            # Apply filtering based on mode using graph renderer
-            if mode == 'segmented':
-                # ✅ FIX: Pass filter_conditions for NumPy Y-value filtering
-                # C++ segments give time ranges, we need to filter Y values in those ranges
-                filter_conditions = filter_data.get('conditions', [])
-                self.graph_renderer.apply_segmented_filter(container, graph_index, time_segments, target_tab_index, filter_conditions)
-            else:  # concatenated
-                # ✅ FIX Concatenated Mode: Apply to ALL tabs, not just target tab!
-                # Concatenated mode değiştirir signal_processor'daki veriyi
-                self.graph_renderer.apply_concatenated_filter(container, time_segments)
-                
-                # Get filtered signals
-                all_signals = self.signal_processor.get_all_signals()
-                all_signal_names = sorted(list(all_signals.keys()))
-                
-                # CRITICAL: Apply concatenated filter to ALL TABS
-                logger.info(f"[CONCATENATED] Applying filter to ALL tabs (total: {len(self.graph_containers)})")
-                for tab_idx, tab_container in enumerate(self.graph_containers):
-                    logger.info(f"[CONCATENATED] Updating tab {tab_idx}")
-                    
-                    # Clear all signals in this tab
-                    tab_container.plot_manager.clear_all_signals()
-                    
-                    # Get signal mapping for this tab
-                    tab_mapping = self.graph_signal_mapping.get(tab_idx, {})
-                    
-                    # Redraw all signals in this tab with filtered data
-                    for g_idx, signal_names in tab_mapping.items():
-                        if g_idx < tab_container.plot_manager.get_subplot_count():
-                            for name in signal_names:
-                                if name in all_signals:
-                                    signal_data = all_signals[name]
-                                    signal_index = all_signal_names.index(name)
-                                    color = self.theme_manager.get_signal_color(signal_index)
-                                    tab_container.plot_manager.add_signal(
-                                        name, 
-                                        signal_data['x_data'], 
-                                        signal_data['y_data'], 
-                                        plot_index=g_idx, 
-                                        pen=color
-                                    )
-                    
-                    # Apply limit lines to this tab
-                    plot_widgets = tab_container.plot_manager.get_plot_widgets()
-                    for g_idx, plot_widget in enumerate(plot_widgets):
-                        visible_signals = self.graph_signal_mapping.get(tab_idx, {}).get(g_idx, [])
-                        if self.graph_renderer:
-                            self.graph_renderer._apply_limit_lines(plot_widget, g_idx, visible_signals)
-                    
-                    # Auto-range all plots in this tab
-                    for plot_widget in tab_container.plot_manager.get_plot_widgets():
-                        plot_widget.enableAutoRange(axis='x', enable=True)
-                        plot_widget.enableAutoRange(axis='y', enable=True)
-                        plot_widget.autoRange()
-                        plot_widget.enableAutoRange(axis='x', enable=False)
-                        plot_widget.enableAutoRange(axis='y', enable=False)
-                
-                logger.info(f"[CONCATENATED] Filter applied to ALL {len(self.graph_containers)} tabs")
+
+            # Concatenated display mode: build a continuous timeline from the
+            # matching segments and apply the filter globally to ALL tabs.
+            # Concatenated mode replaces the data inside signal_processor.
+            self.graph_renderer.apply_concatenated_filter(container, time_segments)
+
+            # Get filtered signals
+            all_signals = self.signal_processor.get_all_signals()
+            all_signal_names = sorted(list(all_signals.keys()))
+
+            # CRITICAL: Apply concatenated filter to ALL TABS
+            logger.info(f"[CONCATENATED] Applying filter to ALL tabs (total: {len(self.graph_containers)})")
+            for tab_idx, tab_container in enumerate(self.graph_containers):
+                # Clear all signals in this tab
+                tab_container.plot_manager.clear_all_signals()
+
+                # Get signal mapping for this tab
+                tab_mapping = self.graph_signal_mapping.get(tab_idx, {})
+
+                # Redraw all signals in this tab with filtered data
+                for g_idx, signal_names in tab_mapping.items():
+                    if g_idx < tab_container.plot_manager.get_subplot_count():
+                        for name in signal_names:
+                            if name in all_signals:
+                                signal_data = all_signals[name]
+                                signal_index = all_signal_names.index(name)
+                                color = self.theme_manager.get_signal_color(signal_index)
+                                tab_container.plot_manager.add_signal(
+                                    name,
+                                    signal_data['x_data'],
+                                    signal_data['y_data'],
+                                    plot_index=g_idx,
+                                    pen=color
+                                )
+
+                # Apply limit lines to this tab
+                plot_widgets = tab_container.plot_manager.get_plot_widgets()
+                for g_idx, plot_widget in enumerate(plot_widgets):
+                    visible_signals = self.graph_signal_mapping.get(tab_idx, {}).get(g_idx, [])
+                    if self.graph_renderer:
+                        self.graph_renderer._apply_limit_lines(plot_widget, g_idx, visible_signals)
+
+                # Auto-range all plots in this tab
+                for plot_widget in tab_container.plot_manager.get_plot_widgets():
+                    plot_widget.enableAutoRange(axis='x', enable=True)
+                    plot_widget.enableAutoRange(axis='y', enable=True)
+                    plot_widget.autoRange()
+                    plot_widget.enableAutoRange(axis='x', enable=False)
+                    plot_widget.enableAutoRange(axis='y', enable=False)
+
+            logger.info(f"[CONCATENATED] Filter applied to ALL {len(self.graph_containers)} tabs")
                 
         except Exception as e:
             logger.error(f"Error applying range filter: {e}")

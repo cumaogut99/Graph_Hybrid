@@ -7,9 +7,23 @@ No external dependencies required.
 TDM format:
   .tdm  — XML header: channel groups, channel metadata, block references
   .tdx  — Binary payload: raw float/int arrays, packed back-to-back
+
+The reader targets the National Instruments USI (Universal Storage Interface)
+TDM layout produced by DIAdem / LabVIEW, where the reference chain is:
+
+    tdm_channelgroup --(channels xpointer)--> tdm_channel
+    tdm_channel      --(local_columns xpointer)--> localcolumn
+    localcolumn      --(values xpointer)--> <type>_sequence
+    <type>_sequence  --(values ref)--> block_bdf   (binary descriptor)
+    block_bdf        --> byteOffset / length / valueType in the .tdx payload
+
+References appear either as `ref="usi5"` attributes or as XPointer text such as
+`#xpointer(id("usi5") id("usi6"))`. Parsing is namespace-agnostic so it works
+across TDM variants. Older/flat TDM variants are handled by fallback scans.
 """
 
 import os
+import re
 import logging
 import numpy as np
 import xml.etree.ElementTree as ET
@@ -28,7 +42,10 @@ _DTYPE_MAP: Dict[str, type] = {
     'eUInt32Usi':  np.uint32,
     'eUInt16Usi':  np.uint16,
     'eUInt8Usi':   np.uint8,
+    'eStringUsi':  np.object_,
 }
+
+_XPOINTER_ID_RE = re.compile(r'id\(\s*["\']([^"\']+)["\']\s*\)')
 
 
 def _local(tag: str) -> str:
@@ -54,6 +71,56 @@ def _child_el(el: ET.Element, local_name: str) -> Optional[ET.Element]:
         if _local(child.tag) == local_name:
             return child
     return None
+
+
+def _attr_or_child(el: ET.Element, names: List[str], default: str = '') -> str:
+    """Look up a value first as an attribute, then as a direct child element text."""
+    for n in names:
+        v = el.get(n)
+        if v is not None and v.strip() != '':
+            return v.strip()
+    for n in names:
+        for child in el:
+            if _local(child.tag) == n and (child.text or '').strip():
+                return child.text.strip()
+    return default
+
+
+def _int(value: str, default: int = 0) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _ids_from_text(text: Optional[str]) -> List[str]:
+    """Extract referenced element ids from XPointer text or a bare id list."""
+    if not text:
+        return []
+    text = text.strip()
+    if not text:
+        return []
+    ids = _XPOINTER_ID_RE.findall(text)
+    if ids:
+        return ids
+    return [tok.lstrip('#').strip() for tok in re.split(r'[\s,]+', text) if tok.strip()]
+
+
+def _ref_ids(el: ET.Element, local_name: str) -> List[str]:
+    """
+    Return the ids referenced by a direct child *local_name* of *el*.
+
+    Handles both attribute references (`ref`, `ref_id`, `idref`) and XPointer
+    text content (`#xpointer(id("usi5") id("usi6"))`).
+    """
+    child = _child_el(el, local_name)
+    if child is None:
+        return []
+    for attr in ('ref', 'ref_id', 'idref'):
+        v = child.get(attr, '').strip()
+        if v:
+            return [v.lstrip('#')]
+    return _ids_from_text(child.text)
 
 
 class TdmReader:
@@ -97,16 +164,16 @@ class TdmReader:
         root = tree.getroot()
 
         # ----------------------------------------------------------------
-        # Resolve TDX path from <include><file url="..."/></include>
-        # Works regardless of namespace
+        # Resolve TDX path and global byte order from <include><file .../>
+        file_byte_order = 'littleEndian'
         for el in root.iter():
             if _local(el.tag) == 'file':
+                file_byte_order = el.get('byteOrder', el.get('byte_order', file_byte_order))
                 url = el.get('url', '')
-                if url:
+                if url and self.tdx_path is None:
                     candidate = os.path.join(os.path.dirname(self.tdm_path), url)
                     if os.path.exists(candidate):
                         self.tdx_path = candidate
-                break
 
         if self.tdx_path is None:
             self.tdx_path = os.path.splitext(self.tdm_path)[0] + '.tdx'
@@ -114,112 +181,154 @@ class TdmReader:
         if not os.path.exists(self.tdx_path):
             raise FileNotFoundError(f"TDX binary file not found: {self.tdx_path}")
 
-        # ----------------------------------------------------------------
-        # Build id → element map (all elements that carry an 'id' attribute)
-        id_map: Dict[str, ET.Element] = {}
-        for el in root.iter():
-            eid = el.get('id', '').strip()
-            if eid:
-                id_map[eid] = el
+        tdx_size = os.path.getsize(self.tdx_path)
 
         # ----------------------------------------------------------------
-        # submatrix → number_of_rows per localColumn
+        # block_bdf / block → binary descriptor {id: {offset, length, vtype, border}}
+        # (USI stores these as attributes; older variants as child elements)
+        block_info: Dict[str, dict] = {}
+        for blk in _find_all_by_local(root, 'block_bdf') + _find_all_by_local(root, 'block'):
+            bid = blk.get('id', '').strip()
+            if not bid:
+                continue
+            block_info[bid] = {
+                'offset': _int(_attr_or_child(blk, ['byteOffset', 'blockOffset', 'byte_offset'], '0')),
+                'length': _int(_attr_or_child(blk, ['length'], '0')),
+                'vtype':  _attr_or_child(blk, ['valueType', 'value_type'], ''),
+                'border': _attr_or_child(blk, ['byteOrder', 'byte_order'], file_byte_order),
+            }
+
+        # ----------------------------------------------------------------
+        # <type>_sequence elements (double_sequence, long_sequence, ...) →
+        # bridge a localcolumn's 'values' to the binary block descriptor.
+        seq_block: Dict[str, str] = {}
+        for el in root.iter():
+            ln = _local(el.tag)
+            if not ln.endswith('_sequence'):
+                continue
+            sid = el.get('id', '').strip()
+            if not sid:
+                continue
+            block_ref = ''
+            for rid in _ref_ids(el, 'values'):
+                if rid in block_info:
+                    block_ref = rid
+                    break
+                if not block_ref:
+                    block_ref = rid
+            seq_block[sid] = block_ref
+
+        # ----------------------------------------------------------------
+        # submatrix → number_of_rows per referenced localcolumn
         lc_rows: Dict[str, int] = {}
         for sm in _find_all_by_local(root, 'submatrix'):
-            n_text = _child_text(sm, 'number_of_rows', '0')
-            n = int(n_text or '0')
-            lc_ids = _child_text(sm, 'local_columns', '')
-            for lc_id in lc_ids.split():
-                lc_rows[lc_id.strip()] = n
+            n = _int(_child_text(sm, 'number_of_rows', '0'))
+            if n <= 0:
+                continue
+            for lc_id in _ref_ids(sm, 'local_columns'):
+                lc_rows[lc_id] = n
 
         # ----------------------------------------------------------------
-        # block → binary descriptor  (supports both <block> and <block_bdf>)
-        block_info: Dict[str, tuple] = {}
-        for blk in list(_find_all_by_local(root, 'block')) + list(_find_all_by_local(root, 'block_bdf')):
-            bid = blk.get('id', '').strip()
-            if bid:
-                offset = int(_child_text(blk, 'blockOffset',  '0') or '0')
-                length = int(_child_text(blk, 'length',       '0') or '0')
-                vtype  =    _child_text(blk, 'valueType',  'eFloat64Usi') or \
-                            _child_text(blk, 'value_type', 'eFloat64Usi')
-                border =    _child_text(blk, 'byteOrder',  'littleEndian') or \
-                            _child_text(blk, 'byte_order', 'littleEndian')
-                block_info[bid] = (offset, length, vtype or 'eFloat64Usi',
-                                   border or 'littleEndian')
-
-        # ----------------------------------------------------------------
-        # localColumn → block reference
-        lc_info: Dict[str, tuple] = {}
-        for lc in _find_all_by_local(root, 'localColumn'):
+        # localcolumn → {block, count, vtype}
+        lc_info: Dict[str, dict] = {}
+        for lc in _find_all_by_local(root, 'localcolumn') + _find_all_by_local(root, 'localColumn'):
             lc_id = lc.get('id', '').strip()
-            if lc_id:
-                vtype = (_child_text(lc, 'values_type', '') or
-                         _child_text(lc, 'value_type', ''))
-                values_el = _child_el(lc, 'values')
-                block_ref = (values_el.get('ref_id', '').strip()
-                             if values_el is not None else '')
-                lc_info[lc_id] = (block_ref, vtype)
+            if not lc_id:
+                continue
+            count = _int(_child_text(lc, 'number_of_rows', '0')) or lc_rows.get(lc_id, 0)
+            vtype = _child_text(lc, 'values_type', '') or _child_text(lc, 'value_type', '')
+
+            block_ref = ''
+            for rid in _ref_ids(lc, 'values'):
+                if rid in seq_block:           # values → sequence → block
+                    block_ref = seq_block[rid]
+                    break
+                if rid in block_info:          # values → block directly (older variant)
+                    block_ref = rid
+                    break
+            lc_info[lc_id] = {'block': block_ref, 'count': count, 'vtype': vtype}
 
         # ----------------------------------------------------------------
-        # channel groups → channels
-        groups_found: Dict[str, List[str]] = {}
-
-        for cg in _find_all_by_local(root, 'channelGroup'):
-            gname = _child_text(cg, 'name', 'Group') or 'Group'
-            groups_found.setdefault(gname, [])
-
-            for ch in _find_all_by_local(cg, 'channel'):
-                cname = _child_text(ch, 'name', 'Channel') or 'Channel'
-                unit  = _child_text(ch, 'unit_string', '') or _child_text(ch, 'unit', '')
-
-                values_el = _child_el(ch, 'values')
-                if values_el is None:
-                    continue
-
-                lc_ref = values_el.get('ref_id', '').strip()
-                if not lc_ref or lc_ref not in lc_info:
-                    continue
-
-                block_ref, vtype = lc_info[lc_ref]
-                n_rows = lc_rows.get(lc_ref, 0)
-
-                if not block_ref or block_ref not in block_info:
-                    continue
-
-                offset, length, btype, border = block_info[block_ref]
-                resolved = vtype or btype or 'eFloat64Usi'
-                dtype = _DTYPE_MAP.get(resolved, np.float64)
-
-                if n_rows == 0 and length > 0 and dtype != np.object_:
-                    n_rows = length // np.dtype(dtype).itemsize
-
-                self._channels[cname] = {
-                    'group':      gname,
-                    'dtype':      dtype,
-                    'offset':     offset,
-                    'count':      n_rows,
-                    'unit':       unit,
-                    'byte_order': border,
-                }
-                groups_found[gname].append(cname)
-
-        self._groups = groups_found
+        # channel groups → name + member channel ids
+        group_name_by_id: Dict[str, str] = {}
+        chan_to_group: Dict[str, str] = {}
+        for cg in _find_all_by_local(root, 'tdm_channelgroup') + _find_all_by_local(root, 'channelGroup'):
+            gid = cg.get('id', '').strip()
+            gname = _child_text(cg, 'name', '') or 'Group'
+            if gid:
+                group_name_by_id[gid] = gname
+            for cid in _ref_ids(cg, 'channels'):
+                chan_to_group[cid] = gname
 
         # ----------------------------------------------------------------
-        # If no channels found via channelGroup, try flat <channel> elements
-        if not self._channels:
-            logger.warning(
-                "[TDM] No channels via channelGroup — trying flat scan"
-            )
-            self._parse_flat(root, id_map, lc_info, lc_rows, block_info)
+        # channels → resolve through localcolumn → block
+        for ch in _find_all_by_local(root, 'tdm_channel') + _find_all_by_local(root, 'channel'):
+            cid = ch.get('id', '').strip()
+            cname = _child_text(ch, 'name', '') or cid or 'Channel'
+            unit = _child_text(ch, 'unit_string', '') or _child_text(ch, 'unit', '')
+
+            # Resolve group: membership map first, then channel's own <group ref>
+            gname = chan_to_group.get(cid, '')
+            if not gname:
+                for r in _ref_ids(ch, 'group'):
+                    if r in group_name_by_id:
+                        gname = group_name_by_id[r]
+                        break
+            if not gname:
+                gname = 'Group'
+
+            # local columns: USI xpointer, or old <values ref_id=...> form
+            lc_ids = _ref_ids(ch, 'local_columns')
+            if not lc_ids:
+                lc_ids = _ref_ids(ch, 'values')
+
+            block_ref = ''
+            count = 0
+            vtype = ''
+            for lc_id in lc_ids:
+                info = lc_info.get(lc_id)
+                if info and info['block']:
+                    block_ref = info['block']
+                    count = info['count']
+                    vtype = info['vtype']
+                    break
+
+            if not block_ref or block_ref not in block_info:
+                continue
+
+            blk = block_info[block_ref]
+            resolved = blk['vtype'] or vtype or 'eFloat64Usi'
+            dtype = _DTYPE_MAP.get(resolved, np.float64)
+
+            # length is a value count in USI; trust number_of_rows when present
+            if count <= 0:
+                count = blk['length']
+
+            # Clamp to what the binary payload can actually provide
+            if dtype != np.object_:
+                itemsize = np.dtype(dtype).itemsize
+                max_count = max(0, (tdx_size - blk['offset']) // itemsize)
+                if count <= 0 or count > max_count:
+                    count = max_count
+
+            if cname in self._channels:
+                cname = f"{gname}/{cname}" if gname else cname
+
+            self._channels[cname] = {
+                'group':      gname,
+                'dtype':      dtype,
+                'offset':     blk['offset'],
+                'count':      count,
+                'unit':       unit,
+                'byte_order': blk['border'],
+            }
+            self._groups.setdefault(gname, []).append(cname)
 
         # ----------------------------------------------------------------
-        # Last resort: old TDM format where <block> elements ARE the channels
+        # Fallback: old TDM format where <block> elements ARE the channels
         if not self._channels and block_info:
-            logger.warning(
-                "[TDM] No channels via flat scan — trying block-as-channel mode"
-            )
-            self._parse_from_blocks(root, block_info)
+            logger.warning("[TDM] No channels via USI scan — trying block-as-channel mode")
+            self._parse_from_blocks(root, block_info, tdx_size)
 
         # ----------------------------------------------------------------
         # Prefix channel names with group name when multiple groups exist
@@ -232,24 +341,21 @@ class TdmReader:
                     info = self._channels.pop(cname, None)
                     if info is None:
                         continue
-                    uname = f"{gname}/{cname}"
+                    uname = f"{gname}/{cname}" if not cname.startswith(f"{gname}/") else cname
                     new_ch[uname] = info
                     new_gr[gname].append(uname)
             self._channels = new_ch
-            self._groups   = new_gr
+            self._groups = new_gr
 
         if not self._channels:
-            # Log XML structure for debugging
             logger.error(
-                "[TDM] Could not find any channels. Root tag: %s, "
-                "Child tags: %s",
-                root.tag,
-                [_local(c.tag) for c in list(root)[:15]],
+                "[TDM] Could not find any channels. Root tag: %s, Child tags: %s",
+                _local(root.tag), [_local(c.tag) for c in list(root)[:15]],
             )
             logger.error(
-                "[TDM] All localColumn ids: %s | All block ids: %s",
-                list(lc_info.keys())[:10],
-                list(block_info.keys())[:10],
+                "[TDM] localColumn ids: %s | block ids: %s | sequence ids: %s",
+                list(lc_info.keys())[:10], list(block_info.keys())[:10],
+                list(seq_block.keys())[:10],
             )
 
         logger.info(
@@ -258,75 +364,39 @@ class TdmReader:
             os.path.basename(self.tdx_path or ''),
         )
 
-    def _parse_flat(self, root, id_map, lc_info, lc_rows, block_info):
-        """Fallback: find <channel> elements anywhere in the tree."""
-        gname = 'Group'
-        self._groups.setdefault(gname, [])
-
-        for ch in _find_all_by_local(root, 'channel'):
-            cname = _child_text(ch, 'name', '') or ch.get('id', 'Channel')
-            unit  = _child_text(ch, 'unit_string', '') or _child_text(ch, 'unit', '')
-
-            values_el = _child_el(ch, 'values')
-            if values_el is None:
-                continue
-
-            lc_ref = values_el.get('ref_id', '').strip()
-            if not lc_ref or lc_ref not in lc_info:
-                continue
-
-            block_ref, vtype = lc_info[lc_ref]
-            n_rows = lc_rows.get(lc_ref, 0)
-
-            if not block_ref or block_ref not in block_info:
-                continue
-
-            offset, length, btype, border = block_info[block_ref]
-            resolved = vtype or btype or 'eFloat64Usi'
-            dtype = _DTYPE_MAP.get(resolved, np.float64)
-
-            if n_rows == 0 and length > 0 and dtype != np.object_:
-                n_rows = length // np.dtype(dtype).itemsize
-
-            self._channels[cname] = {
-                'group':      gname,
-                'dtype':      dtype,
-                'offset':     offset,
-                'count':      n_rows,
-                'unit':       unit,
-                'byte_order': border,
-            }
-            self._groups[gname].append(cname)
-
-    def _parse_from_blocks(self, root: ET.Element, block_info: Dict[str, tuple]):
+    def _parse_from_blocks(self, root: ET.Element, block_info: Dict[str, dict], tdx_size: int):
         """Old TDM format: <block> elements carry both binary descriptor and channel name."""
         gname = 'Group'
         self._groups.setdefault(gname, [])
 
-        for blk in list(_find_all_by_local(root, 'block')) + list(_find_all_by_local(root, 'block_bdf')):
+        for blk in _find_all_by_local(root, 'block') + _find_all_by_local(root, 'block_bdf'):
             bid = blk.get('id', '').strip()
             if not bid or bid not in block_info:
                 continue
 
             cname = _child_text(blk, 'name', '') or bid
-            unit  = _child_text(blk, 'unit_string', '') or _child_text(blk, 'unit', '')
+            unit = _child_text(blk, 'unit_string', '') or _child_text(blk, 'unit', '')
 
-            offset, length, btype, border = block_info[bid]
-            dtype = _DTYPE_MAP.get(btype, np.float64)
-
-            if length == 0:
+            info = block_info[bid]
+            dtype = _DTYPE_MAP.get(info['vtype'], np.float64)
+            if dtype == np.object_:
                 continue
-            n_rows = length // np.dtype(dtype).itemsize
-            if n_rows == 0:
+            itemsize = np.dtype(dtype).itemsize
+
+            count = info['length']
+            max_count = max(0, (tdx_size - info['offset']) // itemsize)
+            if count <= 0 or count > max_count:
+                count = max_count
+            if count <= 0:
                 continue
 
             self._channels[cname] = {
                 'group':      gname,
                 'dtype':      dtype,
-                'offset':     offset,
-                'count':      n_rows,
+                'offset':     info['offset'],
+                'count':      count,
                 'unit':       unit,
-                'byte_order': border,
+                'byte_order': info['border'],
             }
             self._groups[gname].append(cname)
 

@@ -211,9 +211,9 @@ class CsvToMpaiConverter(QObject):
                                       (header_row is not None and start_row != header_row + 1)
             
             if needs_quote_fix or needs_row_preprocessing:
-                logger.info(f"[CSV PREPROCESS] header_row={header_row}, start_row={start_row}, "
+                logger.debug(f"[CSV PREPROCESS] header_row={header_row}, start_row={start_row}, "
                            f"quote_fix={needs_quote_fix}, row_preprocess={needs_row_preprocessing}")
-                
+
                 # Create temp directory if not exists
                 if not self.temp_dir:
                     self.temp_dir = tempfile.mkdtemp()
@@ -240,7 +240,6 @@ class CsvToMpaiConverter(QObject):
                         # Include header line
                         if header_row < len(all_lines):
                             output_lines.append(all_lines[header_row])
-                            logger.info(f"[CSV PREPROCESS] Header from line {header_row}: {all_lines[header_row][:50]}...")
                         else:
                             logger.error(f"[CSV PREPROCESS] Header row {header_row} exceeds file length {len(all_lines)}")
                         
@@ -255,18 +254,18 @@ class CsvToMpaiConverter(QObject):
                     # Write preprocessed lines
                     for line in output_lines:
                         fout.write(line + '\n')
-                    
-                    logger.info(f"[CSV PREPROCESS] Wrote {len(output_lines)} lines to temp file "
+
+                    logger.debug(f"[CSV PREPROCESS] Wrote {len(output_lines)} lines to temp file "
                                f"(original: {len(all_lines)} lines)")
-                
+
                 # Switch to using preprocessed file
                 self.working_csv_path = temp_csv
-                
+
                 # IMPORTANT: Since we've already extracted header and data,
                 # clear the skip_rows settings for subsequent processing
                 self.settings['header_row'] = 0  # Header is now at line 0
                 self.settings['start_row'] = 1   # Data starts at line 1
-                
+
                 # IMPORTANT: Update time_column to match cleaned column names
                 # This ensures user's time column selection works after column name cleaning
                 if 'time_column' in self.settings and self.settings['time_column']:
@@ -275,14 +274,11 @@ class CsvToMpaiConverter(QObject):
                     cleaned_time = str(original_time).strip()
                     if cleaned_time != original_time:
                         self.settings['time_column'] = cleaned_time
-                        logger.info(f"[CSV PREPROCESS] Updated time_column: '{original_time}' -> '{cleaned_time}'")
-                
-                logger.info(f"[CSV PREPROCESS] Using preprocessed temp CSV: {temp_csv}")
-                
+
+                logger.debug(f"[CSV PREPROCESS] Using preprocessed temp CSV: {temp_csv}")
+
         except Exception as e:
             logger.error(f"CSV preprocessing failed: {e}")
-            import traceback
-            traceback.print_exc()
             # Continue with original file if preprocessing fails
 
     def _get_cleaned_column_names(self, columns) -> Dict[str, str]:
@@ -358,14 +354,11 @@ class CsvToMpaiConverter(QObject):
         create_custom = self.settings.get('create_custom_time', False)
         time_col_name = self.settings.get('time_column')
         new_col_name = self.settings.get('new_time_column_name', 'time_generated')
-        
-        # DEBUG: Log what we're looking for and what's available
-        logger.info(f"[TIME TRACE] Looking for time_column='{time_col_name}' in columns: {df.columns[:5]}...")
-        
+
         # Scenario A: Generate Custom Time
         # OR Scenario C: Fallback (No time column found)
         time_col_found = time_col_name and time_col_name in df.columns
-        
+
         # If not found by exact name, try to find it by partial match
         if not time_col_found and time_col_name:
             # Try case-insensitive or partial match
@@ -373,16 +366,13 @@ class CsvToMpaiConverter(QObject):
                 if col.lower() == time_col_name.lower() or \
                    time_col_name.lower() in col.lower() or \
                    col.lower() in time_col_name.lower():
-                    logger.info(f"[TIME TRACE] Found by partial match: '{time_col_name}' -> '{col}'")
                     time_col_name = col
                     self.settings['time_column'] = col  # Update settings
                     time_col_found = True
                     break
-        
+
         should_generate = create_custom or not time_col_found
-        
-        logger.info(f"[TIME TRACE] time_col_found={time_col_found}, should_generate={should_generate}")
-        
+
         if should_generate:
             sampling_freq = self.settings.get('sampling_frequency', 1000.0)
             if sampling_freq <= 0: sampling_freq = 1000.0
@@ -401,72 +391,48 @@ class CsvToMpaiConverter(QObject):
             # Add column
             target_name = new_col_name if create_custom else 'time'
             df = df.with_columns(pl.Series(target_name, time_arr))
-            logger.info(f"[TIME TRACE] Generated time column '{target_name}' with {n_rows} rows")
-            
+
         # Scenario B: Use/Fix Existing Time Column
         elif time_col_name in df.columns:
             # Ensure float64
             try:
                 col = df[time_col_name]
-                logger.info(f"[TIME TRACE] Using existing time column '{time_col_name}' (dtype={col.dtype})")
-                
-                # Log first few values for debugging
-                if col.len() > 0:
-                    sample_values = col.head(min(5, col.len())).to_list()
-                    logger.info(f"[TIME TRACE] Sample values: {sample_values}")
-                
+
                 if col.dtype == pl.Utf8 or col.dtype == pl.String:
                     # String column - need special parsing
-                    logger.info(f"[TIME TRACE] Time column is String, attempting conversion...")
-                    
                     # Replace comma with dot for European decimal format (1,5 -> 1.5)
                     converted_col = col.str.replace(',', '.', literal=True)
-                    
+
                     # Try to cast to float
                     converted_col = converted_col.cast(pl.Float64, strict=False)
-                    
+
                     # Check how many nulls we got after conversion
                     null_count = converted_col.null_count()
                     total_count = converted_col.len()
-                    
+
                     if null_count > total_count * 0.5:
-                        # More than 50% failed - something is wrong
-                        logger.error(f"[TIME TRACE] Conversion failed for {null_count}/{total_count} values!")
-                        # Try to parse as datetime and convert to float
+                        # More than 50% failed - try to parse as datetime instead
                         try:
-                            # Maybe it's a datetime string
                             dt_col = col.str.to_datetime(strict=False)
                             if dt_col.null_count() < null_count:
-                                # Datetime parsing worked better
-                                # Convert to epoch seconds
+                                # Datetime parsing worked better - convert to epoch seconds
                                 converted_col = dt_col.dt.epoch("s").cast(pl.Float64)
-                                logger.info(f"[TIME TRACE] Parsed as datetime, converted to epoch seconds")
-                        except:
+                        except Exception:
                             pass
-                    
+
                     # Fill remaining nulls with interpolation or 0
                     df = df.with_columns(converted_col.fill_null(0.0).alias(time_col_name))
-                    
-                    # Log result
-                    result_col = df[time_col_name]
-                    if result_col.len() > 0:
-                        sample_after = result_col.head(min(5, result_col.len())).to_list()
-                        logger.info(f"[TIME TRACE] After conversion: {sample_after}")
-                    
+
                 elif col.dtype not in [pl.Float64, pl.Float32]:
                     # Numeric but not float - simple cast
-                    logger.info(f"[TIME TRACE] Casting {col.dtype} to Float64")
                     df = df.with_columns(col.cast(pl.Float64, strict=False).fill_null(0.0).alias(time_col_name))
                 else:
                     # Already float - just fill nulls
-                    logger.info(f"[TIME TRACE] Already Float64, filling nulls")
                     df = df.with_columns(col.fill_null(0.0).alias(time_col_name))
-                    
+
             except Exception as e:
-                logger.error(f"[TIME TRACE] Failed to process time column: {e}")
-                import traceback
-                traceback.print_exc()
-                
+                logger.error(f"Failed to process time column '{time_col_name}': {e}")
+
         return df
 
     def _log_performance(self, stage: str, t_start: float, extra: Optional[Dict[str, Any]] = None):
@@ -525,9 +491,9 @@ class CsvToMpaiConverter(QObject):
             skip_rows = start_row
             skip_rows_after_header = 0
         
-        logger.info(f"[CSV SCAN] header_row={header_row}, start_row={start_row}, "
+        logger.debug(f"[CSV SCAN] header_row={header_row}, start_row={start_row}, "
                     f"skip_rows={skip_rows}, skip_after_header={skip_rows_after_header}")
-        
+
         lazy_frame = pl.scan_csv(
             self.working_csv_path,
             has_header=has_header,
@@ -593,13 +559,10 @@ class CsvToMpaiConverter(QObject):
             if original_time_col in old_to_new:
                 cleaned_time_col = old_to_new[original_time_col]
                 if cleaned_time_col != original_time_col:
-                    logger.info(f"[TIME COLUMN] Mapping: '{original_time_col}' -> '{cleaned_time_col}'")
                     self.settings['time_column'] = cleaned_time_col
             else:
                 new_names = set(old_to_new.values())
-                if original_time_col in new_names:
-                    logger.info(f"[TIME COLUMN] '{original_time_col}' found in cleaned column names")
-                else:
+                if original_time_col not in new_names:
                     logger.warning(f"[TIME COLUMN] '{original_time_col}' not found in any column names!")
         
         # Initialize Writer
@@ -633,12 +596,11 @@ class CsvToMpaiConverter(QObject):
                             if median_diff > 0:
                                 detected_freq = 1.0 / median_diff
                                 logger.info(f"[CSV AUTO-DETECT] Calculated Fs = {detected_freq:.2f} Hz (dt={median_diff:.6f}s)")
-                                # Update if default or significantly different?
                                 # Prefer detected if it looks valid
                                 sampling_freq = detected_freq
                                 self.settings['sampling_frequency'] = sampling_freq
                 except Exception as e:
-                    logger.warning(f"[CSV AUTO-DETECT] Failed to detect sampling rate: {e}")
+                    logger.debug(f"[CSV AUTO-DETECT] Failed to detect sampling rate: {e}")
 
         writer.initialize(column_names, sampling_freq, overwrite=True)
 
@@ -655,9 +617,9 @@ class CsvToMpaiConverter(QObject):
             skip_rows = start_row
             skip_rows_after_header = 0
         
-        logger.info(f"[CSV BATCH READ] header_row={header_row}, start_row={start_row}, "
+        logger.debug(f"[CSV BATCH READ] header_row={header_row}, start_row={start_row}, "
                     f"skip_rows={skip_rows}, skip_after_header={skip_rows_after_header}")
-        
+
         reader = pl.read_csv_batched(
             self.working_csv_path,
             batch_size=self.chunk_size,

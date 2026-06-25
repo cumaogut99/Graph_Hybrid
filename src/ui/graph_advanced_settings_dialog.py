@@ -425,7 +425,7 @@ class GraphAdvancedSettingsDialog(QDialog):
                         layout.addWidget(range_label)
                         
                 # Mode info
-                mode = filter_conditions.get('mode', 'segmented')
+                mode = filter_conditions.get('mode', 'concatenated')
                 mode_label = QLabel(f"Mode: {mode.title()}")
                 mode_label.setStyleSheet("color: #888; font-size: 12px; margin-top: 8px; font-style: italic;")
                 layout.addWidget(mode_label)

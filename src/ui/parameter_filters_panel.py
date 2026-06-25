@@ -199,13 +199,11 @@ class ParameterFiltersPanel(QWidget):
             # Add one default condition
             self._add_range_condition()
             
-            # Emit reset signal - CRITICAL: Use current mode, not hardcoded 'segmented'!
-            # This ensures concatenated filters are properly cleaned up
-            current_mode = 'segmented' if self.segmented_mode_rb.isChecked() else 'concatenated'
+            # Emit reset signal - only concatenated mode is supported
             reset_data = {
                 'graph_index': self.graph_index,
                 'conditions': [],  # Empty conditions = reset/clear filter
-                'mode': current_mode  # Preserve current mode for proper cleanup
+                'mode': 'concatenated'
             }
             self.range_filter_applied.emit(reset_data)
             
@@ -293,31 +291,24 @@ class ParameterFiltersPanel(QWidget):
         buttons_layout.addStretch()
         
         parent_layout.addLayout(buttons_layout)
-        
-        # Filter mode selection
+
+        # Filter mode info — only Concatenated Display is supported.
+        # The matching time segments are joined into a continuous timeline and
+        # the filter is applied globally to all graphs.
         mode_group = QGroupBox("🔗 Display Mode")
         mode_group.setStyleSheet(self._get_group_style())
         mode_layout = QVBoxLayout(mode_group)
-        mode_layout.setSpacing(3)  # Daha az spacing
-        mode_layout.setContentsMargins(8, 15, 8, 8)  # Optimize edilmiş margins
-        
-        self.segmented_mode_rb = QCheckBox("Segmented Display (Show matching time segments with gaps)")
-        self.segmented_mode_rb.setStyleSheet("color: #ffffff; font-size: 12px;")
-        
-        self.concatenated_mode_rb = QCheckBox("Concatenated Display (Apply global time filter to all graphs)")
-        self.concatenated_mode_rb.setStyleSheet("color: #ffffff; font-size: 12px;")
-        
-        self.segmented_mode_rb.setChecked(True)  # Default to segmented
-        
-        # Make them mutually exclusive
-        self.segmented_mode_rb.toggled.connect(lambda checked: self.concatenated_mode_rb.setChecked(not checked) if checked else None)
-        self.concatenated_mode_rb.toggled.connect(lambda checked: self.segmented_mode_rb.setChecked(not checked) if checked else None)
-        
-        mode_layout.addWidget(self.segmented_mode_rb)
-        mode_layout.addWidget(self.concatenated_mode_rb)
-        
+        mode_layout.setSpacing(3)
+        mode_layout.setContentsMargins(8, 15, 8, 8)
+
+        mode_info = QLabel("Concatenated Display — matching segments are joined into a "
+                           "continuous timeline and applied to all graphs.")
+        mode_info.setWordWrap(True)
+        mode_info.setStyleSheet("color: #ffffff; font-size: 12px;")
+        mode_layout.addWidget(mode_info)
+
         parent_layout.addWidget(mode_group)
-        
+
     def _add_range_condition(self):
         """Adds a new parameter condition box to the layout."""
         condition_index = len(self.range_conditions)
@@ -542,30 +533,21 @@ class ParameterFiltersPanel(QWidget):
                 
         return {
             'conditions': conditions,
-            'mode': 'segmented' if self.segmented_mode_rb.isChecked() else 'concatenated'
+            'mode': 'concatenated'
         }
         
     def set_range_filter_conditions(self, filter_data: dict):
         """Set range filter conditions from saved data."""
         try:
             conditions = filter_data.get('conditions', [])
-            mode = filter_data.get('mode', 'segmented')
-            
+
             # Clear existing conditions first
             self.range_conditions.clear()
             for i in reversed(range(self.conditions_layout.count())):
                 child = self.conditions_layout.itemAt(i).widget()
                 if child:
                     child.setParent(None)
-            
-            # Set mode
-            if mode == 'segmented':
-                self.segmented_mode_rb.setChecked(True)
-                self.concatenated_mode_rb.setChecked(False)
-            else:
-                self.concatenated_mode_rb.setChecked(True)
-                self.segmented_mode_rb.setChecked(False)
-            
+
             # Add conditions or create default if empty
             if conditions:
                 for condition in conditions:
