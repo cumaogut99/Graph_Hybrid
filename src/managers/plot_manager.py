@@ -18,11 +18,7 @@ import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 import numpy as np
 import pyqtgraph as pg
-<<<<<<< HEAD
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QAction, QMenu, QFrame
-=======
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QAction, QMenu
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
 from PyQt5.QtGui import QColor
 
@@ -201,17 +197,12 @@ class PlotManager(QObject):
     def _process_pending_lod_updates(self):
         """
         Dynamic LOD Switch - the core of view-dependent visualization.
-<<<<<<< HEAD
 
-=======
-        
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         For each signal in the visible range:
         - Calculate sample count in visible range
         - IF sample_count < pixel_width * 2: RAW DIRECT mode (exact data from Arrow)
         - IF sample_count >= pixel_width * 2: AGGREGATED mode (C++ downsampler)
         """
-<<<<<<< HEAD
         # ✅ CRITICAL FIX: Skip LOD updates when filter is active
         # Segmented/concatenated filters provide pre-filtered PlotDataItems
         # LOD would reload full dataset from MPAI, overriding the filtered view!
@@ -223,11 +214,6 @@ class PlotManager(QObject):
         import time
         start_time = time.time()
 
-=======
-        import time
-        start_time = time.time()
-        
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         if not self._lod_pending_ranges:
             return
         
@@ -446,55 +432,27 @@ class PlotManager(QObject):
                 except Exception as e:
                     logger.warning(f"[LOD] LOD parquet failed: {e}, falling back to streaming")
                 
-                # FALLBACK: Use C++ streaming downsampler
+                # FALLBACK: Python streaming downsampler
                 try:
-<<<<<<< HEAD
-                    # NEW: Check for MpaiDirectoryReader (Python-based Zero-Copy Reader)
-                    # It has a built-in optimized get_render_data method
+                    # Check for MpaiDirectoryReader with built-in optimized get_render_data
                     if hasattr(reader, 'get_render_data') and hasattr(reader, 'name_to_id'):
-                        
-                        # Resolve Channel ID
                         ch_id = reader.name_to_id.get(signal_col)
                         if ch_id is not None:
-                            # Pixel width is roughly target_points / 2 (since target is usually 2x width)
                             pixel_width = max(1, target_points // 2)
-                            
                             x_data, y_data, src_type = reader.get_render_data(
-                                ch_id, 
-                                view_x_min, view_x_max, 
-                                pixel_width
+                                ch_id, view_x_min, view_x_max, pixel_width
                             )
-                            
                             if len(x_data) > 0:
-                                # logger.debug(f"[LOD-DIR] Used MpaiDirectoryReader ({src_type}) for {signal_col}")
                                 return x_data, y_data
-                    
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
-                    import time_graph_cpp
-                    
-                    config = time_graph_cpp.SmartDownsampleConfig()
-                    config.target_points = target_points
-                    config.use_lttb = True
-                    config.detect_local_extrema = True
-                    
-                    # Use the C++ streaming downsampler with time range
-                    result = time_graph_cpp.downsample_minmax_streaming(
+
+                    # Python min-max downsample
+                    return self._python_minmax_downsample(
                         reader, time_col, signal_col,
-                        target_points,
-                        float('nan'), float('nan')  # No warning thresholds
+                        start_row, slice_count, target_points
                     )
-                    
-                    x_data = np.array(result['time'], dtype=np.float64)
-                    y_data = np.array(result['value'], dtype=np.float64)
-                    
-                    # Filter to view range
-                    mask = (x_data >= view_x_min) & (x_data <= view_x_max)
-                    return x_data[mask], y_data[mask]
-                    
+
                 except Exception as e:
-                    logger.error(f"[LOD] C++ downsample failed: {e}, falling back to Python")
-                    # Fallback: Python min-max
+                    logger.error(f"[LOD] Python downsample failed: {e}, falling back to Python min-max")
                     return self._python_minmax_downsample(
                         reader, time_col, signal_col,
                         start_row, slice_count, target_points
@@ -567,25 +525,18 @@ class PlotManager(QObject):
 
     def set_subplot_count(self, count: int):
         """Set the number of subplots with safe error handling."""
-<<<<<<< HEAD
         print(f"[ZOOM] === set_subplot_count START === current={self.subplot_count}, new={count}")
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         if not (self.min_subplots <= count <= self.max_subplots):
             logger.warning(f"Invalid subplot count: {count}. Must be between {self.min_subplots} and {self.max_subplots}")
             return False
         
         if count == self.subplot_count:
-<<<<<<< HEAD
             print(f"[ZOOM] Same count, returning early")
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return True
         
         try:
             # Store signal data before rebuilding UI
             signal_data_to_restore = self._get_signal_data_for_restore()
-<<<<<<< HEAD
             print(f"[ZOOM] Signal data to restore: {list(signal_data_to_restore.keys())}")
             
             # CRITICAL FIX: Save current X-range before rebuilding to prevent zoom jumping
@@ -598,14 +549,11 @@ class PlotManager(QObject):
                     print(f"[ZOOM] Could not save X-range: {e}")
             else:
                 print(f"[ZOOM] No plot widgets exist, cannot save X-range")
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             # Update count and rebuild the entire UI safely
             self.subplot_count = count
             self._rebuild_ui()
             
-<<<<<<< HEAD
             # Log after rebuild
             if self.plot_widgets:
                 after_rebuild = self.plot_widgets[0].getViewBox().viewRange()[0]
@@ -669,11 +617,6 @@ class PlotManager(QObject):
                 print(f"[ZOOM] Skipping restore: saved_x_range={saved_x_range}, plot_widgets={len(self.plot_widgets) if self.plot_widgets else 0}")
             
             print(f"[ZOOM] === set_subplot_count END ===")
-=======
-            # Restore signals to the new plots
-            self._restore_signals(signal_data_to_restore)
-            
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             return True
             
         except Exception as e:
@@ -790,7 +733,6 @@ class PlotManager(QObject):
             self.plot_widgets.append(plot_widget)
             # Add widget with stretch factor 1 to ensure equal heights
             plot_layout.addWidget(plot_widget, 1)
-<<<<<<< HEAD
             
             # Add a separator line between graphs (except after the last one)
             if i < self.subplot_count - 1:
@@ -799,8 +741,6 @@ class PlotManager(QObject):
                 separator.setFrameShadow(QFrame.Sunken)
                 separator.setStyleSheet(f"background-color: {self.theme_colors.get('primary', '#4a90e2')}; min-height: 2px; max-height: 2px;")
                 plot_layout.addWidget(separator)
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 
         # 3. Re-create the settings buttons and their layout container
         self.settings_container = QWidget()
@@ -990,16 +930,10 @@ class PlotManager(QObject):
                     # Grafik henüz yok, sinyali atlayıp mapping'de sakla
                     skipped_count += 1
         
-<<<<<<< HEAD
         # ❌ REMOVED: reset_view() was causing X-range expansion when changing graph count
         # The X-range is now explicitly restored in set_subplot_count after this function
         # if restored_count > 0:
         #     self.reset_view()
-=======
-        # ✅ FIX: Grafik sayısı değiştiğinde otomatik view all yap
-        if restored_count > 0:
-            self.reset_view()
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         # Re-setup tooltips for all plots after signal restoration
         self._ensure_tooltips_after_rebuild()

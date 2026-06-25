@@ -74,7 +74,7 @@ class DataPreviewThread(QThread):
         try:
             # Dosya uzantısına göre okuma yöntemi belirle
             file_ext = os.path.splitext(self.file_path)[1].lower()
-            
+
             if file_ext == '.csv':
                 # Always use manual line reading to properly handle header_row and start_row
                 df = self._read_csv_with_manual_skip()
@@ -91,16 +91,12 @@ class DataPreviewThread(QThread):
                 df = pl.read_parquet(self.file_path)
                 df = df.head(100)  # İlk 100 satır
             elif file_ext == '.mpai':
-                # MPAI dosyası
-                import time_graph_cpp
-                reader = time_graph_cpp.MpaiReader(self.file_path)
-                
-                # Metadata ve preview için ilk 100 satır
+                # MPAI dosyası — Python reader
+                from src.data.data_reader import MpaiDirectoryReader
+                reader = MpaiDirectoryReader(self.file_path)
                 count = reader.get_row_count()
                 preview_count = min(count, 100)
                 cols = reader.get_column_names()
-                
-                # Data dict oluştur
                 data = {}
                 for col in cols:
                     try:
@@ -108,8 +104,11 @@ class DataPreviewThread(QThread):
                     except Exception as e:
                         logger.warning(f"Preview column '{col}' failed: {e}")
                         data[col] = [None] * preview_count
-                
                 df = pl.DataFrame(data)
+            elif file_ext in ('.tdm', '.tdx'):
+                df = self._read_ni_preview_tdm()
+            elif file_ext == '.tdms':
+                df = self._read_ni_preview_tdms()
             else:
                 # Genel okuma denemesi - CSV gibi işle
                 df = self._read_csv_with_manual_skip()
@@ -233,6 +232,44 @@ class DataPreviewThread(QThread):
                 try_parse_dates=False
             )
 
+    def _read_ni_preview_tdm(self):
+        """Load first 100 rows from a TDM/TDX file pair."""
+        from src.data.tdm_reader import TdmReader
+        reader = TdmReader(self.file_path)
+        names  = reader.get_channel_names()
+        n_rows = min(reader.get_row_count(), 100)
+        data   = {}
+        for name in names:
+            try:
+                arr = reader.read_channel(name, start=0, count=n_rows)
+                data[name] = arr.tolist()
+            except Exception as exc:
+                logger.warning(f"TDM preview channel '{name}' failed: {exc}")
+                data[name] = [None] * n_rows
+        return pl.DataFrame(data)
+
+    def _read_ni_preview_tdms(self):
+        """Load first 100 rows from a TDMS file."""
+        from src.data.tdms_reader import TdmsReader
+        if not TdmsReader.is_available():
+            raise ImportError(
+                "TDMS önizleme için nptdms gereklidir.\n"
+                "Kurulum: pip install nptdms"
+            )
+        reader = TdmsReader(self.file_path)
+        names  = reader.get_channel_names()
+        n_rows = min(reader.get_row_count(), 100)
+        data   = {}
+        for name in names:
+            try:
+                arr = reader.read_channel(name, start=0, count=n_rows)
+                data[name] = arr.tolist()
+            except Exception as exc:
+                logger.warning(f"TDMS preview channel '{name}' failed: {exc}")
+                data[name] = [None] * n_rows
+        return pl.DataFrame(data)
+
+
 class DataImportDialog(QDialog):
     """Gelişmiş veri import dialog'u."""
     
@@ -242,15 +279,20 @@ class DataImportDialog(QDialog):
         self.preview_df = None
         self.metadata = None
         self.preview_thread = None
-        
+
         self.selected_time_column = None
         self.selected_encoding = 'utf-8'
         self.selected_delimiter = ','
         self.selected_header_row = 0
         self.selected_start_row = 0
-        
+
+        ext = os.path.splitext(file_path)[1].lower()
+        self._is_binary_format = ext in ('.tdm', '.tdx', '.tdms')
+        self._file_format = ext.lstrip('.')  # e.g. 'tdm', 'tdx', 'tdms', 'csv'
+
         self._setup_ui()
         self._setup_connections()
+        self._configure_for_file_type()
         self._load_initial_preview()
         
     def _setup_ui(self):
@@ -497,7 +539,6 @@ class DataImportDialog(QDialog):
         ])
         layout.addWidget(self.time_format_combo, 2, 1)
         
-<<<<<<< HEAD
         # Ayırıcı çizgi - yeni zaman kolonu için
         self.new_time_separator = QFrame()
         self.new_time_separator.setFrameShape(QFrame.HLine)
@@ -511,19 +552,6 @@ class DataImportDialog(QDialog):
         # Örnekleme frekansı
         self.sampling_freq_label = QLabel("Örnekleme Frekansı (Hz):")
         layout.addWidget(self.sampling_freq_label, 5, 0)
-=======
-        # Ayırıcı çizgi
-        separator = QFrame()
-        separator.setFrameShape(QFrame.HLine)
-        separator.setFrameShadow(QFrame.Sunken)
-        layout.addWidget(separator, 3, 0, 1, 2)
-        
-        # Yeni zaman kolonu ayarları
-        layout.addWidget(QLabel("🕒 Yeni Zaman Kolonu Ayarları"), 4, 0, 1, 2)
-        
-        # Örnekleme frekansı
-        layout.addWidget(QLabel("Örnekleme Frekansı (Hz):"), 5, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.sampling_freq_spinbox = QSpinBox()
         self.sampling_freq_spinbox.setRange(1, 1000000)  # 1 Hz - 1 MHz
         self.sampling_freq_spinbox.setValue(1)  # Varsayılan 1 Hz
@@ -531,12 +559,8 @@ class DataImportDialog(QDialog):
         layout.addWidget(self.sampling_freq_spinbox, 5, 1)
         
         # Başlangıç zamanı
-<<<<<<< HEAD
         self.start_time_label = QLabel("Başlangıç Zamanı:")
         layout.addWidget(self.start_time_label, 6, 0)
-=======
-        layout.addWidget(QLabel("Başlangıç Zamanı:"), 6, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.start_time_combo = QComboBox()
         self.start_time_combo.addItems([
             "0 (Sıfırdan Başla)",
@@ -546,40 +570,27 @@ class DataImportDialog(QDialog):
         layout.addWidget(self.start_time_combo, 6, 1)
         
         # Özel başlangıç zamanı
-<<<<<<< HEAD
         self.custom_start_label = QLabel("Özel Başlangıç:")
         layout.addWidget(self.custom_start_label, 7, 0)
-=======
-        layout.addWidget(QLabel("Özel Başlangıç:"), 7, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.custom_start_time = QLineEdit()
         self.custom_start_time.setPlaceholderText("YYYY-MM-DD HH:MM:SS")
         self.custom_start_time.setEnabled(False)
         layout.addWidget(self.custom_start_time, 7, 1)
         
         # Zaman birimi
-<<<<<<< HEAD
         self.time_unit_label = QLabel("Zaman Birimi:")
         layout.addWidget(self.time_unit_label, 8, 0)
-=======
-        layout.addWidget(QLabel("Zaman Birimi:"), 8, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.time_unit_combo = QComboBox()
         self.time_unit_combo.addItems(['saniye', 'milisaniye', 'mikrosaniye', 'nanosaniye'])
         layout.addWidget(self.time_unit_combo, 8, 1)
         
         # Zaman kolonu adı
-<<<<<<< HEAD
         self.new_time_column_label = QLabel("Yeni Kolon Adı:")
         layout.addWidget(self.new_time_column_label, 9, 0)
-=======
-        layout.addWidget(QLabel("Yeni Kolon Adı:"), 9, 0)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         self.new_time_column_name = QLineEdit()
         self.new_time_column_name.setText("time_generated")
         layout.addWidget(self.new_time_column_name, 9, 1)
         
-<<<<<<< HEAD
         # Yeni zaman kolonu widget'larını listeye kaydet (gizleme için)
         self.new_time_widgets = [
             self.new_time_separator,
@@ -595,10 +606,36 @@ class DataImportDialog(QDialog):
         for widget in self.new_time_widgets:
             widget.setVisible(False)
         
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         return group
         
+    def _configure_for_file_type(self):
+        """Disable text-format controls when a binary NI format is loaded."""
+        if not self._is_binary_format:
+            return
+
+        fmt = self._file_format.upper()
+
+        # Title
+        self.setWindowTitle(
+            f"Veri Import - {os.path.basename(self.file_path)} [{fmt}]"
+        )
+
+        # Encoding / delimiter / auto-detect — not applicable
+        self.encoding_combo.setEnabled(False)
+        self.delimiter_combo.setEnabled(False)
+        self.auto_detect_btn.setEnabled(False)
+
+        # Header & row settings — binary formats carry their own metadata
+        self.header_spinbox.setEnabled(False)
+        self.has_header_checkbox.setEnabled(False)
+        self.has_header_checkbox.setChecked(False)
+        self.start_row_spinbox.setEnabled(False)
+
+        # Informational tooltip on disabled groups
+        for w in (self.encoding_combo, self.delimiter_combo,
+                  self.header_spinbox, self.start_row_spinbox):
+            w.setToolTip(f"{fmt} ikili formatı için geçerli değil")
+
     def _create_button_panel(self):
         """Alt buton paneli oluştur - kompakt."""
         layout = QHBoxLayout()
@@ -793,7 +830,6 @@ class DataImportDialog(QDialog):
                         if 'çevrilemedi' in issue:
                             warnings.append(f"💡 '{col_name}': {issue}")
             
-<<<<<<< HEAD
             # Kullanıcıya bilgi ver (Kaldırıldı - log only)
             if issues:
                 logger.info("Data Quality Issues found but dialog suppressed:")
@@ -807,18 +843,6 @@ class DataImportDialog(QDialog):
                 # msg += "\n\n💡 İsterseniz import ayarlarını değiştirebilirsiniz."
                 
                 # QMessageBox.information(self, "Veri Kalite Kontrolü", msg)
-=======
-            # Kullanıcıya bilgi ver
-            if issues:
-                msg = "📊 **Veri Kalite Uyarıları:**\n\n"
-                msg += "\n".join(issues[:5])  # İlk 5 sorunu göster
-                if len(issues) > 5:
-                    msg += f"\n\n... ve {len(issues) - 5} diğer sorun"
-                msg += "\n\n✅ Uygulama bu sorunları otomatik olarak düzeltmeye çalışacak."
-                msg += "\n\n💡 İsterseniz import ayarlarını değiştirebilirsiniz."
-                
-                QMessageBox.information(self, "Veri Kalite Kontrolü", msg)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             
             logger.info(f"Veri validasyonu tamamlandı: {len(issues)} sorun, {len(warnings)} uyarı")
             
@@ -877,19 +901,9 @@ class DataImportDialog(QDialog):
         self.time_column_combo.setEnabled(is_existing_mode)
         self.time_format_combo.setEnabled(is_existing_mode)
         
-<<<<<<< HEAD
         # Yeni zaman kolonu widget'larını göster/gizle
         for widget in self.new_time_widgets:
             widget.setVisible(not is_existing_mode)
-=======
-        # Yeni zaman kolonu ayarlarını etkinleştir/devre dışı bırak
-        self.sampling_freq_spinbox.setEnabled(not is_existing_mode)
-        self.start_time_combo.setEnabled(not is_existing_mode)
-        self.custom_start_time.setEnabled(not is_existing_mode and 
-                                         self.start_time_combo.currentText() == "Özel Zaman")
-        self.time_unit_combo.setEnabled(not is_existing_mode)
-        self.new_time_column_name.setEnabled(not is_existing_mode)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         
         logger.debug(f"Zaman kolonu modu değişti: {mode_text}")
         
@@ -973,19 +987,12 @@ class DataImportDialog(QDialog):
             QGroupBox::title {
                 subcontrol-origin: margin;
                 left: 8px;
-<<<<<<< HEAD
                 padding: 2px 6px 2px 6px;
                 color: #1a5276;
                 background-color: #e8eaed;
                 border-radius: 3px;
                 font-weight: 700;
                 font-size: 12px;
-=======
-                padding: 0 4px 0 4px;
-                color: #7fb3d3;
-                font-weight: 600;
-                font-size: 11px;
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QLabel {
                 color: #e8eaed;
@@ -1050,17 +1057,9 @@ class DataImportDialog(QDialog):
                 border-left: 1px solid #5f7c8a;
             }
             QComboBox::down-arrow {
-<<<<<<< HEAD
                 image: url(icons/chevron-down.svg);
                 width: 12px;
                 height: 12px;
-=======
-                image: none;
-                border-left: 4px solid transparent;
-                border-right: 4px solid transparent;
-                border-top: 4px solid #e8eaed;
-                margin-right: 6px;
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QComboBox QAbstractItemView {
                 background-color: #2a3441;
@@ -1114,10 +1113,7 @@ class DataImportDialog(QDialog):
             QCheckBox::indicator:checked {
                 background-color: #5f7c8a;
                 border: 1px solid #7fb3d3;
-<<<<<<< HEAD
                 image: url(icons/check.svg);
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QScrollArea {
                 background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
@@ -1146,18 +1142,12 @@ class DataImportDialog(QDialog):
                 background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                     stop: 0 #4a6270, stop: 1 #3a4a5c);
                 border: 1px solid #5f7c8a;
-<<<<<<< HEAD
                 width: 16px;
                 height: 12px;
-=======
-                width: 14px;
-                height: 10px;
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
             }
             QSpinBox::up-button:hover, QSpinBox::down-button:hover {
                 background: #5f7c8a;
             }
-<<<<<<< HEAD
             QSpinBox::up-arrow {
                 image: url(icons/chevron-up.svg);
                 width: 10px;
@@ -1168,8 +1158,6 @@ class DataImportDialog(QDialog):
                 width: 10px;
                 height: 10px;
             }
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         """)
         
     def get_import_settings(self) -> Dict[str, Any]:
@@ -1210,13 +1198,18 @@ class DataImportDialog(QDialog):
         time_format = time_format_map.get(time_format_display, 'Otomatik')
         
         settings = {
-            'file_path': self.file_path,
-            'encoding': self.encoding_combo.currentText(),
-            'delimiter': delimiter,
-            'header_row': self.header_spinbox.value() if self.has_header_checkbox.isChecked() else None,
-            'start_row': self.start_row_spinbox.value(),
-            'time_mode': time_mode,
-            'create_custom_time': is_custom_time
+            'file_path':    self.file_path,
+            'file_format':  self._file_format,
+            'encoding':     self.encoding_combo.currentText(),
+            'delimiter':    delimiter,
+            'header_row':   (self.header_spinbox.value()
+                             if (self.has_header_checkbox.isChecked()
+                                 and not self._is_binary_format)
+                             else None),
+            'start_row':    (self.start_row_spinbox.value()
+                             if not self._is_binary_format else 0),
+            'time_mode':    time_mode,
+            'create_custom_time': is_custom_time,
         }
         
         if is_custom_time:
@@ -1230,16 +1223,11 @@ class DataImportDialog(QDialog):
             })
         else:
             # Mevcut zaman kolonu ayarları
-<<<<<<< HEAD
             time_column_raw = self.time_column_combo.currentText()
             time_column_cleaned = time_column_raw.strip()  # Match converter's cleaning
             settings.update({
                 'time_column': time_column_cleaned,  # Use cleaned name for consistency
                 'time_column_original': time_column_raw,  # Keep original for debugging
-=======
-            settings.update({
-                'time_column': self.time_column_combo.currentText(),
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 'time_format': time_format,  # Parsed format
                 'time_unit': self.time_unit_combo.currentText()
             })

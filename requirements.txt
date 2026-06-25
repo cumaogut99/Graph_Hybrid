@@ -17,4 +17,6 @@ pyinstaller>=5.0.0
 pillow>=8.0.0
 
 # Ek Kütüphaneler
-openpyxl>=3.0.0  # Excel dosya desteği için
+openpyxl>=3.0.0   # Excel dosya desteği için
+psutil>=5.9.0     # Bellek takibi için
+nptdms>=1.0.0     # NI TDMS dosya desteği için

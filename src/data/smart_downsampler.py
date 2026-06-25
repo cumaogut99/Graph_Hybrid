@@ -35,13 +35,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# C++ modülünü import et
-try:
-    import time_graph_cpp as _tg
-    _HAS_CPP = True
-except ImportError:
-    _HAS_CPP = False
-    logger.warning("C++ module not available, using Python fallback (slower)")
+_HAS_CPP = False  # Pure Python implementation
 
 
 class DownsampleStats(NamedTuple):
@@ -99,24 +93,8 @@ def downsample(
             return x_data, y_data, np.arange(len(x_data))
         return x_data, y_data
     
-    if _HAS_CPP:
-        # C++ implementasyonu kullan
-        result = _tg.smart_downsample(
-            x_data, y_data, 
-            target_points,
-            threshold_high,
-            threshold_low
-        )
-        
-        x_ds, y_ds = result.to_numpy()
-        
-        if return_indices:
-            return x_ds, y_ds, np.array(result.original_indices)
-        return x_ds, y_ds
-    else:
-        # Python fallback (çok daha yavaş)
-        return _python_downsample(x_data, y_data, target_points, 
-                                  threshold_high, threshold_low, return_indices)
+    return _python_downsample(x_data, y_data, target_points,
+                              threshold_high, threshold_low, return_indices)
 
 
 def downsample_with_stats(
@@ -155,39 +133,16 @@ def downsample_with_stats(
         )
         return x_data, y_data, stats
     
-    if _HAS_CPP:
-        result = _tg.smart_downsample(
-            x_data, y_data,
-            target_points,
-            threshold_high,
-            threshold_low
-        )
-        
-        x_ds, y_ds = result.to_numpy()
-        
-        stats = DownsampleStats(
-            input_size=result.input_size,
-            output_size=result.output_size,
-            compression_ratio=result.compression_ratio(),
-            spike_count=result.spike_count,
-            peak_count=result.peak_count,
-            valley_count=result.valley_count,
-            critical_count=result.critical_points_count,
-            lttb_count=result.lttb_points_count
-        )
-        
-        return x_ds, y_ds, stats
-    else:
-        x_ds, y_ds = _python_downsample(x_data, y_data, target_points,
-                                        threshold_high, threshold_low, False)
-        stats = DownsampleStats(
-            input_size=len(x_data),
-            output_size=len(x_ds),
-            compression_ratio=len(x_ds) / len(x_data),
-            spike_count=0, peak_count=0, valley_count=0,
-            critical_count=0, lttb_count=len(x_ds)
-        )
-        return x_ds, y_ds, stats
+    x_ds, y_ds = _python_downsample(x_data, y_data, target_points,
+                                    threshold_high, threshold_low, False)
+    stats = DownsampleStats(
+        input_size=len(x_data),
+        output_size=len(x_ds),
+        compression_ratio=len(x_ds) / len(x_data),
+        spike_count=0, peak_count=0, valley_count=0,
+        critical_count=0, lttb_count=len(x_ds)
+    )
+    return x_ds, y_ds, stats
 
 
 class SmartDownsampler:
@@ -223,30 +178,10 @@ class SmartDownsampler:
         self._auto_threshold = auto_threshold
         self._last_stats = None
         
-        # C++ downsampler instance (varsa)
-        if _HAS_CPP:
-            self._cpp_ds = _tg.SmartDownsampler()
-            self._config = _tg.SmartDownsampleConfig()
-            self._update_config()
-        else:
-            self._cpp_ds = None
-            self._config = None
-    
+        pass
+
     def _update_config(self):
-        """C++ config'i güncelle"""
-        if self._config is None:
-            return
-        
-        self._config.target_points = self._target
-        
-        if self._threshold_high is not None:
-            self._config.spike_threshold_high = self._threshold_high
-            self._config.use_auto_threshold = False
-        else:
-            self._config.use_auto_threshold = self._auto_threshold
-        
-        if self._threshold_low is not None:
-            self._config.spike_threshold_low = self._threshold_low
+        pass
     
     def set_target(self, target_points: int):
         """Hedef nokta sayısını ayarla"""
@@ -281,29 +216,11 @@ class SmartDownsampler:
         if len(x_data) <= self._target:
             return x_data, y_data
         
-        if self._cpp_ds is not None:
-            result = self._cpp_ds.downsample(x_data, y_data, self._config)
-            self._last_stats = result
-            return result.to_numpy()
-        else:
-            return _python_downsample(x_data, y_data, self._target,
-                                      self._threshold_high, self._threshold_low, False)
+        return _python_downsample(x_data, y_data, self._target,
+                                  self._threshold_high, self._threshold_low, False)
     
     def get_last_stats(self) -> Optional[DownsampleStats]:
-        """Son işlemin istatistiklerini döndür"""
-        if self._last_stats is None:
-            return None
-        
-        return DownsampleStats(
-            input_size=self._last_stats.input_size,
-            output_size=self._last_stats.output_size,
-            compression_ratio=self._last_stats.compression_ratio(),
-            spike_count=self._last_stats.spike_count,
-            peak_count=self._last_stats.peak_count,
-            valley_count=self._last_stats.valley_count,
-            critical_count=self._last_stats.critical_points_count,
-            lttb_count=self._last_stats.lttb_points_count
-        )
+        return self._last_stats
     
     @property
     def target_points(self) -> int:
@@ -399,19 +316,8 @@ def _python_downsample(
 
 # Module-level convenience
 def is_cpp_available() -> bool:
-    """C++ modülünün kullanılabilir olup olmadığını kontrol et"""
-    return _HAS_CPP
+    return False
 
 
 def get_backend_info() -> dict:
-    """Backend bilgilerini döndür"""
-    info = {
-        "cpp_available": _HAS_CPP,
-        "backend": "C++ (SIMD/AVX2)" if _HAS_CPP else "Python (fallback)",
-    }
-    
-    if _HAS_CPP:
-        info["simd"] = True
-        info["parallel"] = True
-    
-    return info
+    return {"cpp_available": False, "backend": "Python (LTTB)"}

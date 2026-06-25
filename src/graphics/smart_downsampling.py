@@ -11,14 +11,7 @@ from typing import Tuple, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-# Try to import C++ downsampling functions
-try:
-    import time_graph_cpp as tgcpp
-    CPP_DOWNSAMPLE_AVAILABLE = True
-    logger.info("[DOWNSAMPLE] C++ smart downsampling available")
-except ImportError:
-    CPP_DOWNSAMPLE_AVAILABLE = False
-    logger.warning("[DOWNSAMPLE] C++ module not available, using basic fallback")
+CPP_DOWNSAMPLE_AVAILABLE = False  # Pure Python implementation
 
 
 class SmartDownsampler:
@@ -88,38 +81,6 @@ class SmartDownsampler:
                 'strategy': 'none'
             }
         
-        # Use C++ if available
-        if CPP_DOWNSAMPLE_AVAILABLE:
-            try:
-                result = tgcpp.downsample_auto(
-                    time_data,
-                    signal_data,
-                    self.screen_width,
-                    has_limits
-                )
-                
-                time_ds = np.array(result.time)
-                signal_ds = np.array(result.value)
-                
-                strategy = 'lttb+critical' if has_limits else 'lttb'
-                
-                logger.info(
-                    f"[DOWNSAMPLE] Auto: {data_length:,} → {len(time_ds):,} points "
-                    f"({strategy}, critical={result.critical_count})"
-                )
-                
-                return time_ds, signal_ds, {
-                    'downsampled': True,
-                    'original_points': data_length,
-                    'final_points': len(time_ds),
-                    'critical_points': result.critical_count,
-                    'strategy': strategy
-                }
-                
-            except Exception as e:
-                logger.warning(f"[DOWNSAMPLE] C++ auto failed: {e}, using fallback")
-        
-        # Python fallback (simple decimation)
         return self._fallback_downsample(time_data, signal_data)
     
     def downsample_lttb(
@@ -153,27 +114,6 @@ class SmartDownsampler:
                 'final_points': data_length,
                 'strategy': 'none'
             }
-        
-        if CPP_DOWNSAMPLE_AVAILABLE:
-            try:
-                result = tgcpp.downsample_lttb(time_data, signal_data, max_points)
-                
-                time_ds = np.array(result.time)
-                signal_ds = np.array(result.value)
-                
-                logger.info(
-                    f"[DOWNSAMPLE] LTTB: {data_length:,} → {len(time_ds):,} points"
-                )
-                
-                return time_ds, signal_ds, {
-                    'downsampled': True,
-                    'original_points': data_length,
-                    'final_points': len(time_ds),
-                    'strategy': 'lttb'
-                }
-                
-            except Exception as e:
-                logger.warning(f"[DOWNSAMPLE] C++ LTTB failed: {e}, using fallback")
         
         return self._fallback_downsample(time_data, signal_data, max_points)
     
@@ -213,45 +153,6 @@ class SmartDownsampler:
                 'final_points': data_length,
                 'strategy': 'none'
             }
-        
-        if CPP_DOWNSAMPLE_AVAILABLE:
-            try:
-                # Configure critical points detection
-                config = tgcpp.CriticalPointsConfig()
-                config.detect_peaks = True
-                config.detect_valleys = True
-                config.detect_sudden_changes = True
-                config.detect_limit_violations = (limits is not None)
-                
-                if limits:
-                    config.warning_limits = [limits.get('min', float('-inf')), 
-                                            limits.get('max', float('inf'))]
-                
-                config.max_points = 500  # Max 500 critical points
-                
-                # Run smart downsampling
-                result = tgcpp.downsample_lttb_with_critical(
-                    time_data, signal_data, max_points, config
-                )
-                
-                time_ds = np.array(result.time)
-                signal_ds = np.array(result.value)
-                
-                logger.info(
-                    f"[DOWNSAMPLE] Critical: {data_length:,} → {len(time_ds):,} points "
-                    f"(preserved {result.critical_count} critical points)"
-                )
-                
-                return time_ds, signal_ds, {
-                    'downsampled': True,
-                    'original_points': data_length,
-                    'final_points': len(time_ds),
-                    'critical_points': result.critical_count,
-                    'strategy': 'lttb+critical'
-                }
-                
-            except Exception as e:
-                logger.warning(f"[DOWNSAMPLE] C++ critical failed: {e}, using fallback")
         
         return self._fallback_downsample(time_data, signal_data, max_points)
     

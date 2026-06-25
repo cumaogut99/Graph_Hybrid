@@ -7,38 +7,19 @@ Handles signal processing operations including:
 - Statistical calculations
 - Signal filtering and conditioning
 - Performance-optimized data operations
-<<<<<<< HEAD
 - LOD (Level of Detail) auto-selection for spike-safe rendering
 """
 
 import logging
 import os
-=======
-"""
-
-import logging
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
 import polars as pl
 from PyQt5.QtCore import QObject, pyqtSignal as Signal, QThread, QMutex, QMutexLocker
 
-<<<<<<< HEAD
-# Try to import C++ LOD bindings
-try:
-    import sys
-    build_path = os.path.join(os.path.dirname(__file__), '..', '..', 'cpp', 'build', 'Release')
-    if os.path.exists(build_path) and build_path not in sys.path:
-        sys.path.insert(0, build_path)
-    import pyarrow  # Load pyarrow first for DLL dependencies
-    import time_graph_cpp as tgcpp
-    HAS_CPP_LOD = hasattr(tgcpp, 'LodReader') and hasattr(tgcpp, 'get_lod_bucket_size')
-except ImportError:
-    HAS_CPP_LOD = False
-    tgcpp = None
+HAS_CPP_LOD = False  # Pure Python implementation
+tgcpp = None
 
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
 logger = logging.getLogger(__name__)
 
 class SignalProcessor(QObject):
@@ -50,10 +31,7 @@ class SignalProcessor(QObject):
     - Threaded processing for large datasets
     - Caching for repeated calculations
     - Optimized statistical computations
-<<<<<<< HEAD
     - LOD auto-selection for spike-safe visualization
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     """
     
     # Signals
@@ -75,13 +53,10 @@ class SignalProcessor(QObject):
         self.current_mpai_path = None  # ✅ Store MPAI file path for LOD lookup
         self.numpy_cache = {}  # Column name -> numpy array cache
         
-<<<<<<< HEAD
         # LOD cache for spike-safe rendering
         self.lod_readers = {}  # bucket_size -> LodReader instance
         self.lod_container_path = None  # Path to LOD container directory
         
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
         # Processing parameters
         self.normalization_method = "peak"  # peak, rms, minmax
         self.statistics_window_size = 1000  # Rolling statistics window
@@ -146,7 +121,6 @@ class SignalProcessor(QObject):
                 row_count = df.get_row_count()
                 
                 # Determine time column
-<<<<<<< HEAD
                 # Debug: Log incoming time_column and available columns
                 logger.info(f"[MPAI DEBUG] Requested time_column: '{time_column}'")
                 logger.info(f"[MPAI DEBUG] Available columns: {columns}")
@@ -187,18 +161,6 @@ class SignalProcessor(QObject):
                     if not time_column:
                         time_column = columns[0] if columns else "time"
                         logger.warning(f"[MPAI DEBUG] No time column found, using first column: '{time_column}'")
-=======
-                if not time_column:
-                    # Try to find "time" in columns
-                    for col in columns:
-                        if 'time' in col.lower() or col == columns[0]:
-                            time_column = col
-                            break
-                
-                if not time_column:
-                    logger.warning("No time column found in MPAI, using first column")
-                    time_column = columns[0] if columns else "time"
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 
                 self.time_column_name = time_column
                 
@@ -210,7 +172,6 @@ class SignalProcessor(QObject):
                 
                 # Get time range (load only 2 values!)
                 try:
-<<<<<<< HEAD
                     # DEBUG: Log the actual call and result
                     logger.info(f"[MMAP DEBUG] Calling load_column_slice('{time_column}', 0, 1)")
                     first_slice = df.load_column_slice(time_column, 0, 1)
@@ -219,10 +180,6 @@ class SignalProcessor(QObject):
                     logger.info(f"[MMAP DEBUG] Calling load_column_slice('{time_column}', {max(0, row_count - 1)}, 1)")
                     last_slice = df.load_column_slice(time_column, max(0, row_count - 1), 1)
                     logger.info(f"[MMAP DEBUG] last_slice = {last_slice}, type={type(last_slice)}")
-=======
-                    first_slice = df.load_column_slice(time_column, 0, 1)
-                    last_slice = df.load_column_slice(time_column, max(0, row_count - 1), 1)
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     
                     if len(first_slice) > 0 and len(last_slice) > 0:
                         t_first = float(first_slice[0])
@@ -230,19 +187,13 @@ class SignalProcessor(QObject):
                         full_time_range = (t_first, t_last)
                         logger.info(f"[MMAP] Time range: {t_first:.2f} to {t_last:.2f}")
                     else:
-<<<<<<< HEAD
                         logger.warning(f"[MMAP DEBUG] Empty slices returned! first_len={len(first_slice)}, last_len={len(last_slice)}")
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                         t_first, t_last = 0.0, float(row_count - 1)
                         full_time_range = (t_first, t_last)
                 except Exception as e:
                     logger.error(f"Error getting time range: {e}")
-<<<<<<< HEAD
                     import traceback
                     traceback.print_exc()
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     t_first, t_last = 0.0, float(row_count - 1)
                     full_time_range = (t_first, t_last)
                 
@@ -581,7 +532,6 @@ class SignalProcessor(QObject):
             
             logger.debug(f"Removed signal '{name}'")
     
-<<<<<<< HEAD
     def _register_calculated_param(self, name: str, reader):
         """
         Register a disk-based calculated parameter for memory-mapped access.
@@ -643,12 +593,6 @@ class SignalProcessor(QObject):
                     return {}
             
             return data.copy() if data else {}
-=======
-    def get_signal_data(self, name: str) -> Optional[Dict]:
-        """Get signal data safely."""
-        with QMutexLocker(self.mutex):
-            return self.signal_data.get(name, {}).copy()
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
     
     def get_all_signals(self) -> Dict[str, Dict]:
         """
@@ -770,7 +714,6 @@ class SignalProcessor(QObject):
             col_name = signal_info['column_name']
             time_col = signal_info['time_column']
             row_count = signal_info['row_count']
-<<<<<<< HEAD
 
             # ✅ OPTIMIZED PATH: Use MpaiDirectoryReader's built-in get_render_data
             # This utilizes the .red (Reduced) files for instant access
@@ -812,14 +755,6 @@ class SignalProcessor(QObject):
             # Optimization: Don't bucketize if we have e.g. 5000 rows and want 4000 points
             if row_count <= target_points * 4:
                 logger.debug(f"[DOWNSAMPLE] Small dataset ({row_count} rows), loading all")
-=======
-            
-            logger.info(f"[DOWNSAMPLE] Streaming {row_count:,} rows → {target_points} points for '{signal_name}'")
-            
-            # If dataset is small, return full data
-            if row_count <= target_points:
-                logger.debug(f"[DOWNSAMPLE] Small dataset, loading all {row_count} rows")
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                 x_data = np.array(reader.load_column_slice(time_col, 0, row_count), dtype=np.float64)
                 y_data = np.array(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
                 return {'x_data': x_data, 'y_data': y_data}
@@ -1170,29 +1105,18 @@ class SignalProcessor(QObject):
                 is_mpai = metadata.get('mpai', False)
                 is_memory_mapped = metadata.get('memory_mapped', False)
                 
-<<<<<<< HEAD
-                # ========== MEMORY-MAPPED MPAI: Use C++ FastStatsCalculator OR MpaiDirectoryReader ==========
+                # ========== MEMORY-MAPPED MPAI: Use MpaiDirectoryReader ==========
                 if is_memory_mapped:
-                    try:
-=======
-                # ========== MEMORY-MAPPED MPAI: Use C++ FastStatsCalculator (O(1) with binary search) ==========
-                if is_memory_mapped:
-                    try:
-                        import time_graph_cpp
-                        
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
-                        # Get reader and column info from signal_info
-                        reader = signal_info.get('mpai_reader')
-                        col_name = signal_info.get('column_name', name)
-                        time_col = signal_info.get('time_column', 'time')
-                        
-                        if reader is None:
-                            logger.error(f"[STATS] Memory-mapped signal '{name}' has no mpai_reader")
-                            continue
-                        
-<<<<<<< HEAD
-                        # 1. NEW: Check if this is the Python MpaiDirectoryReader (has get_statistics_snapshot)
-                        if hasattr(reader, 'get_statistics_snapshot') and hasattr(reader, 'name_to_id'):
+                    reader = signal_info.get('mpai_reader')
+                    col_name = signal_info.get('column_name', name)
+                    time_col = signal_info.get('time_column', 'time')
+
+                    if reader is None:
+                        logger.error(f"[STATS] Memory-mapped signal '{name}' has no mpai_reader")
+                        continue
+
+                    # 1. Check if this is the Python MpaiDirectoryReader (has get_statistics_snapshot)
+                    if hasattr(reader, 'get_statistics_snapshot') and hasattr(reader, 'name_to_id'):
                             # Use the new Directory Reader API
                             try:
                                 # Get Channel ID (required for Reader API)
@@ -1235,62 +1159,25 @@ class SignalProcessor(QObject):
                                 logger.error(f"[STATS] MpaiDirectoryReader failed for '{name}': {e}")
                                 continue
 
-                        # 2. LEGACY C++: Use time_graph_cpp
-                        import time_graph_cpp
-                        
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
+                    # 2. Pure Python: Load from reader and calculate with NumPy
+                    try:
+                        row_count = reader.get_row_count()
                         if time_range is not None:
                             start_time, end_time = time_range
-                            # ✅ PERFORMANCE FIX: Use FastStatsCalculator instead of streaming
-                            # FastStatsCalculator uses:
-                            #   - Binary search (O(log N)) to find row indices
-                            #   - Pre-aggregated chunk metadata (O(1)) for complete chunks
-                            #   - Only loads partial chunks from disk
-                            # This is 1000x faster than streaming which scans entire time column!
-                            logger.debug(f"[STATS] Using FastStatsCalculator for '{name}' time range [{start_time:.2f}, {end_time:.2f}]")
-                            
-                            fast_stats = time_graph_cpp.FastStatsCalculator.calculate_time_range_statistics(
-                                reader, col_name, start_time, end_time, time_col
-                            )
-                            
-                            stats = {
-                                'mean': fast_stats.mean,
-                                'std': fast_stats.std_dev,
-                                'min': fast_stats.min,
-                                'max': fast_stats.max,
-                                'median': fast_stats.mean,  # Approximation
-                                'rms': fast_stats.rms,
-                                'peak_to_peak': fast_stats.max - fast_stats.min,
-                                'count': fast_stats.count,
-                                'valid_count': fast_stats.count,
-                            }
-                            results[name] = stats
+                            raw_time = np.asarray(reader.load_column_slice(time_col, 0, row_count), dtype=np.float64)
+                            mask = (raw_time >= start_time) & (raw_time <= end_time)
+                            raw_data = np.asarray(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
+                            y_subset = raw_data[mask]
+                            x_subset = raw_time[mask]
                         else:
-                            # Full statistics without time range - use column metadata
-                            col_meta = reader.get_column_metadata(col_name)
-                            if col_meta:
-                                stats = {
-                                    'mean': col_meta.statistics.mean if hasattr(col_meta.statistics, 'mean') else 0.0,
-                                    'std': col_meta.statistics.std_dev if hasattr(col_meta.statistics, 'std_dev') else 0.0,
-                                    'min': col_meta.statistics.min if hasattr(col_meta.statistics, 'min') else 0.0,
-                                    'max': col_meta.statistics.max if hasattr(col_meta.statistics, 'max') else 0.0,
-                                    'median': col_meta.statistics.mean if hasattr(col_meta.statistics, 'mean') else 0.0,
-                                    'rms': 0.0,
-                                    'peak_to_peak': (col_meta.statistics.max - col_meta.statistics.min) if hasattr(col_meta.statistics, 'max') else 0.0,
-                                    'count': reader.get_row_count(),
-                                    'valid_count': reader.get_row_count(),
-                                }
-                                results[name] = stats
-                            else:
-                                logger.warning(f"[STATS] No column metadata for '{col_name}'")
-                        continue
-                        
+                            y_subset = np.asarray(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
+                            x_subset = None
+
+                        stats = self._calc_numpy_stats(y_subset, x_subset)
+                        results[name] = stats
                     except Exception as e:
-                        logger.error(f"[STATS] FastStatsCalculator failed for '{name}': {e}")
-                        import traceback
-                        traceback.print_exc()
-                        continue
+                        logger.error(f"[STATS] Python reader stats failed for '{name}': {e}")
+                    continue
                 
                 # ========== CSV SIGNALS: Use in-memory x_data/y_data ==========
                 x_data = signal_info.get('x_data')
@@ -1306,133 +1193,39 @@ class SignalProcessor(QObject):
                 # ========== MPAI with preview data: Optimized statistics calculation ==========
                 if is_mpai and hasattr(self, 'raw_dataframe') and hasattr(self.raw_dataframe, 'get_header'):
                     try:
-                        import time_graph_cpp
-                        
+                        mpai_reader = self.raw_dataframe
+                        full_count = metadata.get('full_count', mpai_reader.get_row_count())
+
                         if time_range is not None:
-                            # PERFORMANCE OPTIMIZATION: For time range statistics on large MPAI files,
-                            # use row-based streaming instead of time-based (avoids reading entire time column)
                             start_time, end_time = time_range
-                            full_count = metadata.get('full_count', len(x_data))
-                            
-                            # Check if time range is within preview data (first 10k rows)
-                            # Preview time range: x_data[0] to x_data[-1]
-                            preview_max_time = x_data[-1] if len(x_data) > 0 else 0
-                            preview_min_time = x_data[0] if len(x_data) > 0 else 0
-                            
-                            if start_time >= preview_min_time and end_time <= preview_max_time:
-                                # Time range is within preview - use Python (fast, already in memory)
-                                logger.debug(f"[STATS PERF] Using preview data for time range [{start_time:.2f}, {end_time:.2f}]")
+                            # Use preview data if time range is within it
+                            if (len(x_data) > 0 and start_time >= x_data[0] and end_time <= x_data[-1]):
                                 mask = (x_data >= start_time) & (x_data <= end_time)
                                 if np.any(mask):
-                                    y_subset = y_data[mask]
-                                    x_subset = x_data[mask]
-                                    stats = self._calculate_signal_statistics(y_subset, x_subset, duty_cycle_threshold_mode, duty_cycle_threshold_value)
-                                    results[name] = stats
-                                    continue
-                            else:
-                                # ✅ NEW: Use FastStatsCalculator for instant statistics (< 16ms)
-                                # This uses pre-aggregated chunk metadata for O(1) complete chunks
-                                # and only loads edge data from disk
-                                try:
-                                    logger.debug(f"[FAST STATS] Using FastStatsCalculator for time range [{start_time:.2f}, {end_time:.2f}]")
-                                    
-                                    # Get MPAI reader from raw_dataframe
-                                    mpai_reader = self.raw_dataframe
-                                    
-                                    # Use FastStatsCalculator with time range
-                                    fast_stats = time_graph_cpp.FastStatsCalculator.calculate_time_range_statistics(
-                                        mpai_reader, name, start_time, end_time
+                                    stats = self._calculate_signal_statistics(
+                                        y_data[mask], x_data[mask],
+                                        duty_cycle_threshold_mode, duty_cycle_threshold_value
                                     )
-                                    
-                                    logger.debug(f"[FAST STATS] Complete chunks: {fast_stats.complete_chunks}, "
-                                               f"Partial chunks: {fast_stats.partial_chunks}, "
-                                               f"Rows loaded: {fast_stats.rows_loaded}")
-                                    
-                                    stats = {
-                                        'count': fast_stats.count,
-                                        'mean': fast_stats.mean,
-                                        'std': fast_stats.std_dev,
-                                        'min': fast_stats.min,
-                                        'max': fast_stats.max,
-                                        'rms': fast_stats.rms,
-                                        'peak_to_peak': fast_stats.max - fast_stats.min,
-                                        'median': fast_stats.mean,  # Approximation
-                                    }
-                                    
-                                    threshold = stats['mean'] if duty_cycle_threshold_mode == "auto" else duty_cycle_threshold_value
-                                    stats['duty_cycle'] = 50.0
-                                    stats['duty_cycle_threshold'] = threshold
-                                    
                                     results[name] = stats
                                     continue
-                                    
-                                except Exception as e:
-                                    logger.warning(f"[FAST STATS] FastStatsCalculator failed for {name}: {e}, falling back to streaming")
-                                    # Fall back to old streaming method
-                                    # Time range is outside preview - calculate row indices efficiently
-                                    # Estimate sample rate from preview data
-                                    if len(x_data) > 1:
-                                        sample_rate = (len(x_data) - 1) / (x_data[-1] - x_data[0]) if (x_data[-1] - x_data[0]) > 0 else 1.0
-                                    else:
-                                        sample_rate = 1.0
-                                    
-                                    # Convert time range to row indices
-                                    start_row = max(0, int(start_time * sample_rate))
-                                    end_row = min(full_count, int(end_time * sample_rate))
-                                    row_count = max(1, end_row - start_row)
-                                    
-                                    logger.debug(f"[STATS FALLBACK] Streaming calculation for rows {start_row} to {end_row} ({row_count} rows)")
-                                    cpp_stats = time_graph_cpp.StatisticsEngine.calculate_streaming(
-                                        self.raw_dataframe, name, int(start_row), int(row_count)
-                                    )
-                                    
-                                    stats = {
-                                        'count': cpp_stats.count,
-                                        'mean': cpp_stats.mean,
-                                        'std': cpp_stats.std_dev,
-                                        'min': cpp_stats.min,
-                                        'max': cpp_stats.max,
-                                        'rms': cpp_stats.rms,
-                                        'peak_to_peak': cpp_stats.peak_to_peak,
-                                        'median': cpp_stats.median if cpp_stats.median != 0.0 else cpp_stats.mean,
-                                    }
-                                    
-                                    threshold = stats['mean'] if duty_cycle_threshold_mode == "auto" else duty_cycle_threshold_value
-                                    stats['duty_cycle'] = 50.0
-                                    stats['duty_cycle_threshold'] = threshold
-                                    
-                                    results[name] = stats
-                                    continue
+                            # Load from reader for out-of-preview range
+                            time_col_reader = metadata.get('time_column', 'time')
+                            raw_time = np.asarray(mpai_reader.load_column_slice(time_col_reader, 0, full_count), dtype=np.float64)
+                            raw_y = np.asarray(mpai_reader.load_column_slice(name, 0, full_count), dtype=np.float64)
+                            mask = (raw_time >= start_time) & (raw_time <= end_time)
+                            stats = self._calc_numpy_stats(raw_y[mask] if np.any(mask) else raw_y[:0])
                         else:
-                            # No time range - calculate statistics for FULL dataset
-                            # This ensures 100% accuracy for min/max/mean/std values
-                            full_count = metadata.get('full_count', len(x_data))
-                            logger.debug(f"[STATS] Full dataset statistics for {name} ({full_count} rows)")
-                            
-                            cpp_stats = time_graph_cpp.StatisticsEngine.calculate_streaming(
-                                self.raw_dataframe, name, 0, int(full_count)
-                            )
-                            
-                            stats = {
-                                'count': cpp_stats.count,
-                                'mean': cpp_stats.mean,
-                                'std': cpp_stats.std_dev,
-                                'min': cpp_stats.min,
-                                'max': cpp_stats.max,
-                                'rms': cpp_stats.rms,
-                                'peak_to_peak': cpp_stats.peak_to_peak,
-                                'median': cpp_stats.median if cpp_stats.median != 0.0 else cpp_stats.mean,
-                            }
-                            
-                            threshold = stats['mean'] if duty_cycle_threshold_mode == "auto" else duty_cycle_threshold_value
-                            stats['duty_cycle'] = 50.0
-                            stats['duty_cycle_threshold'] = threshold
-                            
-                            results[name] = stats
-                            continue
-                        
+                            raw_y = np.asarray(mpai_reader.load_column_slice(name, 0, full_count), dtype=np.float64)
+                            stats = self._calc_numpy_stats(raw_y)
+
+                        threshold = stats['mean'] if duty_cycle_threshold_mode == "auto" else duty_cycle_threshold_value
+                        stats['duty_cycle'] = 50.0
+                        stats['duty_cycle_threshold'] = threshold
+                        results[name] = stats
+                        continue
+
                     except Exception as e:
-                        logger.error(f"C++ stats EXCEPTION for {name}: {e}", exc_info=True)
+                        logger.error(f"[STATS] MPAI stats failed for {name}: {e}", exc_info=True)
                         # Fall through to preview data
                 
                 # ========== CSV/Fallback: Use preview data (Python) ==========
@@ -1513,6 +1306,26 @@ class SignalProcessor(QObject):
         self._stats_cache.clear()
         logger.debug("Statistics cache cleared")
     
+    @staticmethod
+    def _calc_numpy_stats(y: np.ndarray, x: Optional[np.ndarray] = None) -> Dict[str, Any]:
+        """Minimal NumPy statistics dict (used by MPAI reader paths)."""
+        valid = y[~np.isnan(y)] if len(y) > 0 else y
+        if len(valid) == 0:
+            return {'mean': 0.0, 'std': 0.0, 'min': 0.0, 'max': 0.0,
+                    'median': 0.0, 'rms': 0.0, 'peak_to_peak': 0.0,
+                    'count': 0, 'valid_count': 0}
+        return {
+            'mean': float(np.mean(valid)),
+            'std': float(np.std(valid, ddof=1)),
+            'min': float(np.min(valid)),
+            'max': float(np.max(valid)),
+            'median': float(np.median(valid)),
+            'rms': float(np.sqrt(np.mean(valid ** 2))),
+            'peak_to_peak': float(np.max(valid) - np.min(valid)),
+            'count': len(y),
+            'valid_count': len(valid),
+        }
+
     def _calculate_signal_statistics(self, y_data: np.ndarray, x_data: np.ndarray, 
                                    duty_cycle_threshold_mode: str = "auto", 
                                    duty_cycle_threshold_value: float = 0.0,
@@ -1683,7 +1496,6 @@ class SignalProcessor(QObject):
                             col = col_names[i]
                             if col in batch_results:
                                 results[name] = batch_results[col]
-<<<<<<< HEAD
                     elif hasattr(reader, 'get_cursor_value') and hasattr(reader, 'name_to_id'):
                         # Python MpaiDirectoryReader optimization
                         # It doesn't have batch iterator yet, but get_cursor_value is O(1)
@@ -1694,8 +1506,6 @@ class SignalProcessor(QObject):
                                 ch_id = reader.name_to_id[col]
                                 val = reader.get_cursor_value(ch_id, timestamp)
                                 results[name] = val
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
                     else:
                         # Fallback if C++ method missing (old pyd)
                         # We must release lock to call get_signal_at_time? 
@@ -1929,26 +1739,14 @@ class SignalProcessor(QObject):
                 time_col = signal_info.get('time_column', 'time')
                 
                 try:
-                    import time_graph_cpp
-                    # Use C++ streaming stats for the range
-                    cpp_stats = time_graph_cpp.StatisticsEngine.calculate_time_range_streaming(
-                        reader, col_name, time_col, start_time, end_time
-                    )
-                    
-                    return {
-                        'x_data': None,  # Not available for streaming
-                        'y_data': None,
-                        'statistics': {
-                            'mean': cpp_stats.mean,
-                            'std': cpp_stats.std_dev,
-                            'min': cpp_stats.min,
-                            'max': cpp_stats.max,
-                            'median': cpp_stats.median,
-                            'rms': cpp_stats.rms,
-                            'peak_to_peak': cpp_stats.peak_to_peak,
-                            'count': cpp_stats.count,
-                        }
-                    }
+                    row_count = reader.get_row_count()
+                    raw_time = np.asarray(reader.load_column_slice(time_col, 0, row_count), dtype=np.float64)
+                    raw_y = np.asarray(reader.load_column_slice(col_name, 0, row_count), dtype=np.float64)
+                    mask = (raw_time >= start_time) & (raw_time <= end_time)
+                    y_range = raw_y[mask]
+                    t_range = raw_time[mask]
+                    stats = self._calc_numpy_stats(y_range, t_range)
+                    return {'x_data': t_range, 'y_data': y_range, 'statistics': stats}
                 except Exception as e:
                     logger.error(f"Failed to get MPAI signal range: {e}")
                     return None
@@ -2245,116 +2043,5 @@ class SignalProcessor(QObject):
                     y_out.append(y_slice[min_idx])
         
         return np.array(x_out), np.array(y_out)
-<<<<<<< HEAD
     
-    # ==========================================================================
-    # LOD (Level of Detail) Support for Spike-Safe Visualization
-    # ==========================================================================
-    
-    def _get_lod_render_data(
-        self,
-        signal_name: str,
-        visible_samples: int,
-        time_start: Optional[float] = None,
-        time_end: Optional[float] = None
-    ) -> Optional[Dict[str, np.ndarray]]:
-        """
-        Get spike-safe render data from pre-computed LOD files.
-        
-        Uses C++ LodReader for zero-copy memory-mapped access to .tlod files.
-        Automatically selects appropriate LOD level based on visible sample count.
-        
-        Args:
-            signal_name: Signal column name
-            visible_samples: Number of samples in visible range
-            time_start: Optional start time for range query
-            time_end: Optional end time for range query
-            
-        Returns:
-            Dict with 'x_data' and 'y_data' (2 points per bucket: min/max)
-            Returns None if LOD not available
-        """
-        if not HAS_CPP_LOD:
-            return None
-        
-        # Determine LOD container path
-        if not self.lod_container_path and self.current_mpai_path:
-            # LOD files are stored in the MPAI container directory
-            if os.path.isdir(self.current_mpai_path):
-                self.lod_container_path = self.current_mpai_path
-            else:
-                self.lod_container_path = os.path.dirname(self.current_mpai_path)
-        
-        if not self.lod_container_path:
-            return None
-        
-        try:
-            # Get recommended bucket size from C++
-            bucket_size = tgcpp.get_lod_bucket_size(visible_samples)
-            
-            if bucket_size == 0:
-                # Use raw data
-                return None
-            
-            # Get LOD filename
-            lod_filename = tgcpp.get_lod_filename(bucket_size)
-            lod_path = os.path.join(self.lod_container_path, lod_filename)
-            
-            if not os.path.exists(lod_path):
-                logger.debug(f"[LOD] File not found: {lod_path}")
-                return None
-            
-            # Get or create cached reader
-            if bucket_size not in self.lod_readers:
-                reader = tgcpp.LodReader()
-                if not reader.open(lod_path):
-                    logger.warning(f"[LOD] Failed to open: {lod_path}")
-                    return None
-                self.lod_readers[bucket_size] = reader
-            
-            reader = self.lod_readers[bucket_size]
-            
-            # Find column index
-            col_idx = reader.get_column_index(signal_name)
-            if col_idx < 0:
-                logger.debug(f"[LOD] Column '{signal_name}' not found in LOD")
-                return None
-            
-            # Determine bucket range
-            if time_start is not None and time_end is not None:
-                start_bucket, bucket_count = reader.find_bucket_range(time_start, time_end)
-            else:
-                start_bucket = 0
-                bucket_count = reader.get_bucket_count()
-            
-            if bucket_count == 0:
-                return None
-            
-            # Get spike-safe render data (returns tuple of time, values)
-            x_data, y_data = reader.get_render_data(col_idx, start_bucket, bucket_count)
-            
-            if len(x_data) == 0:
-                return None
-            
-            logger.debug(f"[LOD] Loaded {len(x_data)} points from LOD bucket_size={bucket_size} for '{signal_name}'")
-            
-            return {
-                'x_data': np.array(x_data, dtype=np.float64),
-                'y_data': np.array(y_data, dtype=np.float64)
-            }
-            
-        except Exception as e:
-            logger.warning(f"[LOD] Error reading LOD for '{signal_name}': {e}")
-            return None
-    
-    def close_lod_readers(self):
-        """Close all cached LOD readers."""
-        for reader in self.lod_readers.values():
-            try:
-                reader.close()
-            except Exception:
-                pass
-        self.lod_readers.clear()
-
-=======
->>>>>>> a00000f060d03177d5efc0e2a3c7d946dd33992b
+    # ===================================================================
