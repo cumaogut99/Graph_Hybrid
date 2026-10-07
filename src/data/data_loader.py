@@ -9,10 +9,12 @@ import logging
 import os
 import time
 import hashlib
+import json
 import tempfile
 from PyQt5.QtCore import QObject, pyqtSignal as Signal
 
 from src.data.csv_to_mpai_converter import CsvToMpaiConverter
+from src.data.excel_to_csv import is_excel_file, excel_to_temp_csv, remove_temp_csv
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,8 @@ class DataLoader(QObject):
         super().__init__()
         self.settings = settings
         self._datetime_converted = False # Tracked during conversion now
+        # Column -> [values stored as 0 because they were not numbers, non-empty values]
+        self.non_numeric_report = {}
         self.converter = None # Active converter instance
 
     def cancel(self):
@@ -95,22 +99,47 @@ class DataLoader(QObject):
         if file_ext == '.mpai':
             return self._load_mpai(file_path)
 
-        # 2. CSV Loading (Convert -> Load)
-        if file_ext == '.csv':
+        # 2. CSV / delimited text Loading (Convert -> Load)
+        if file_ext in ('.csv', '.txt'):
             return self._load_csv_as_mpai(file_path)
 
         # 3. NI TDM/TDX/TDMS Loading
         if file_ext in ('.tdm', '.tdx', '.tdms'):
             return self._load_ni_as_mpai(file_path)
 
-        # 4. Excel (Not Supported in Streaming Architecture)
-        if file_ext in ['.xlsx', '.xls']:
-            raise ValueError("Excel dosyaları performans mimarisinde desteklenmemektedir. Lütfen CSV'ye çevirin.")
+        # 4. Excel: sheet -> temp CSV -> same CSV pipeline
+        if is_excel_file(file_path):
+            return self._load_excel_as_mpai(file_path)
 
         raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
 
-    def _load_csv_as_mpai(self, file_path):
-        """Convert CSV to MPAI and load it. MPAI files are stored in temp directory."""
+    def _load_excel_as_mpai(self, file_path):
+        """
+        Load an Excel sheet through the CSV pipeline.
+
+        The import dialog normally hands over the sheet already exported to a
+        temp CSV (settings['_excel_csv_path']); it is exported here otherwise.
+        The temp CSV is deleted once the MPAI exists.
+        """
+        csv_path = self.settings.get('_excel_csv_path')
+        if not csv_path or not os.path.exists(csv_path):
+            self.progress.emit("Excel sayfası okunuyor...", 2)
+            csv_path = excel_to_temp_csv(file_path, self.settings.get('excel_sheet'))
+        try:
+            return self._load_csv_as_mpai(file_path, source_path=csv_path)
+        finally:
+            remove_temp_csv(csv_path)
+            self.settings.pop('_excel_csv_path', None)
+
+    def _load_csv_as_mpai(self, file_path, source_path=None):
+        """
+        Convert CSV to MPAI and load it. MPAI files are stored in temp directory.
+
+        Args:
+            file_path: Original file (names the cache entry, checked for changes)
+            source_path: CSV actually converted, if different (Excel temp CSV)
+        """
+        source_path = source_path or file_path
         try:
             # === TEMP DIRECTORY SETUP ===
             # Use %LOCALAPPDATA%/TimeGraph/cache/ for temp MPAI files
@@ -131,10 +160,17 @@ class DataLoader(QObject):
             
             logger.info(f"[TEMP] MPAI will be stored at: {mpai_path}")
             
-            # Generate a simple hash based on import settings to invalidate cache when settings change
-            header_row = self.settings.get('header_row')
-            start_row = self.settings.get('start_row', 0)
-            settings_key = f"h{header_row}_s{start_row}"
+            # Hash every import setting that affects the converted data, so
+            # changing e.g. the delimiter or time column invalidates the cache
+            cache_relevant = {
+                k: v for k, v in self.settings.items()
+                if not k.startswith('_') and k not in ('file_path', 'time_column_original')
+            }
+            # Conversion fixes must not be hidden by MPAIs cached by older code
+            cache_relevant['_converter_version'] = CsvToMpaiConverter.CONVERTER_VERSION
+            settings_key = hashlib.md5(
+                json.dumps(cache_relevant, sort_keys=True, default=str).encode()
+            ).hexdigest()
             
             # Check for existing valid cache
             should_regenerate = False
@@ -146,20 +182,25 @@ class DataLoader(QObject):
                         os.path.getsize(os.path.join(mpai_path, f)) 
                         for f in os.listdir(mpai_path) if os.path.isfile(os.path.join(mpai_path, f))
                     ) if os.path.isdir(mpai_path) else 0
-                    csv_size = os.path.getsize(file_path)
+                    csv_size = os.path.getsize(source_path)
                     # MPAI should be at least 5% of CSV size (compression)
                     # If too small, it's likely corrupted
                     if mpai_size > csv_size * 0.05:
                         # Check if a settings marker file exists and matches current settings
-                        cached_settings = ""
+                        # Marker (JSON): settings key + conversion results the
+                        # UI needs again when loading from cache
+                        marker = {}
                         if os.path.exists(settings_marker_path):
                             try:
-                                with open(settings_marker_path, 'r') as f:
-                                    cached_settings = f.read().strip()
-                            except:
-                                pass
+                                with open(settings_marker_path, 'r', encoding='utf-8') as f:
+                                    marker = json.load(f)
+                            except Exception:
+                                marker = {}  # old plain-text marker: regenerate
+                        cached_settings = marker.get('key', '') if isinstance(marker, dict) else ''
                         
                         if cached_settings == settings_key:
+                            self._datetime_converted = bool(marker.get('datetime', False))
+                            self.non_numeric_report = marker.get('non_numeric', {})
                             logger.info(f"Using valid cached MPAI: {mpai_path} ({mpai_size/1024/1024:.1f} MB)")
                             self.progress.emit("Loading from cache...", 10)
                             return self._load_mpai(mpai_path)
@@ -192,17 +233,23 @@ class DataLoader(QObject):
                 # Relay conversion progress
                 self.progress.emit(msg, pct)
             
+            conversion_errors = []
+            used_retry_path = False
+
             # Pass all settings (time creation, etc.) to converter
             # Use class directly to keep reference
             self.converter = CsvToMpaiConverter(
-                file_path, 
+                source_path,
                 mpai_path, 
                 settings=self.settings
             )
             self.converter.progress.connect(_progress_cb)
+            self.converter.error.connect(conversion_errors.append)
             
             # Run conversion
             success = self.converter.convert()
+            self._datetime_converted = self.converter.time_is_datetime
+            self.non_numeric_report = self.converter.non_numeric_report
             self.converter = None # Clear ref
             
             if not success:
@@ -219,21 +266,24 @@ class DataLoader(QObject):
                 self.progress.emit(f"Retrying with new cache path...", 5)
                 
                 self.converter = CsvToMpaiConverter(
-                    file_path, 
+                    source_path, 
                     unique_mpai_path, 
                     settings=self.settings
                 )
                 self.converter.progress.connect(_progress_cb)
+                self.converter.error.connect(conversion_errors.append)
                 
                 success = self.converter.convert()
+                self._datetime_converted = self.converter.time_is_datetime
+                self.non_numeric_report = self.converter.non_numeric_report
                 self.converter = None
                 
                 if success:
                     mpai_path = unique_mpai_path
-                    # Update settings key marker path too?
-                    # Ideally yes, but main concern is reading the data
+                    used_retry_path = True
                 else:
-                    raise ValueError("Conversion failed after retry")
+                    detail = conversion_errors[-1] if conversion_errors else "bilinmeyen hata"
+                    raise ValueError(f"CSV dönüştürme başarısız: {detail}")
 
             # Save settings marker for cache validation
             try:
@@ -242,9 +292,19 @@ class DataLoader(QObject):
                 if not os.path.exists(marker_dir):
                      os.makedirs(marker_dir, exist_ok=True)
                      
-                with open(settings_marker_path, 'w') as f:
-                    f.write(settings_key)
-                logger.info(f"Settings marker saved: {settings_key}")
+                if used_retry_path:
+                    # Data is under a unique name; the regular cache path still
+                    # holds old (possibly partial) data and must not validate
+                    if os.path.exists(settings_marker_path):
+                        os.remove(settings_marker_path)
+                else:
+                    with open(settings_marker_path, 'w', encoding='utf-8') as f:
+                        json.dump({
+                            'key': settings_key,
+                            'datetime': self._datetime_converted,
+                            'non_numeric': self.non_numeric_report,
+                        }, f, ensure_ascii=False)
+                    logger.info(f"Settings marker saved: {settings_key}")
             except Exception as e:
                 logger.warning(f"Failed to save settings marker: {e}")
             

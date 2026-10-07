@@ -145,12 +145,14 @@ class WidgetContainerManager(QObject):
         # Emit signal
         self.widget_switched.emit(new_widget, old_widget)
     
-    def remove_widget_for_file(self, file_index: int):
+    def remove_widget_for_file(self, file_index: int, reindex: bool = True):
         """
         Belirtilen dosyanın widget'ını kaldır ve temizle.
-        
+
         Args:
             file_index: Dosya indeksi
+            reindex: True ise sonraki dosyaların indeksleri bir azaltılır
+                (MultiFileManager.loaded_files listesiyle aynı kalması için)
         """
         if file_index not in self.widgets:
             logger.warning(f"No widget to remove for file {file_index}")
@@ -189,10 +191,24 @@ class WidgetContainerManager(QObject):
             del self.widget_filter_states[file_index]
         
         logger.info(f"Widget removed for file {file_index}")
-        
+
         # Update active index if needed
         if self.active_widget_index == file_index:
             self.active_widget_index = -1
+
+        if reindex:
+            self._shift_indices_after(file_index)
+
+    def _shift_indices_after(self, removed_index: int):
+        """Kapatılan dosyadan sonraki widget indekslerini bir azalt."""
+        self.widgets = {
+            (i - 1 if i > removed_index else i): w for i, w in self.widgets.items()
+        }
+        self.widget_filter_states = {
+            (i - 1 if i > removed_index else i): s for i, s in self.widget_filter_states.items()
+        }
+        if self.active_widget_index > removed_index:
+            self.active_widget_index -= 1
     
     def get_active_widget(self):
         """
@@ -213,7 +229,7 @@ class WidgetContainerManager(QObject):
         file_indices = list(self.widgets.keys())
         
         for file_index in file_indices:
-            self.remove_widget_for_file(file_index)
+            self.remove_widget_for_file(file_index, reindex=False)
         
         # Filtre durumlarını da temizle
         self.widget_filter_states.clear()

@@ -68,24 +68,24 @@ class ParametersPanelManager(QObject):
             }
         """)
         title_layout = QVBoxLayout(title_container)
-        title_layout.setContentsMargins(15, 15, 15, 15)
+        title_layout.setContentsMargins(10, 8, 10, 8)
         
         # Title
         title_label = QLabel("🔧 Parameters")
         title_label.setStyleSheet("""
-            font-size: 16pt;
+            font-size: 13px;
             font-weight: bold;
             color: #e6f3ff;
-            padding: 5px;
+            padding: 2px;
         """)
         title_layout.addWidget(title_label)
         
         # Description
         desc_label = QLabel("Drag parameters onto graphs to plot them")
         desc_label.setStyleSheet("""
-            font-size: 9pt;
+            font-size: 10px;
             color: #a0c0e0;
-            padding: 2px 5px;
+            padding: 0px 2px 4px 2px;
         """)
         title_layout.addWidget(desc_label)
         
@@ -96,9 +96,9 @@ class ParametersPanelManager(QObject):
                 background: rgba(74, 144, 226, 0.3);
                 border: 1px solid rgba(74, 144, 226, 0.5);
                 border-radius: 4px;
-                padding: 8px;
+                padding: 4px 8px;
                 color: #e6f3ff;
-                font-size: 10pt;
+                font-size: 11px;
                 font-weight: 500;
             }
             QPushButton:hover {

@@ -56,9 +56,9 @@ class DataOperations:
         
         # Desteklenen dosya formatları
         file_filter = (
-            "Veri Dosyaları (*.csv *.xlsx *.xls *.tdm *.tdx *.tdms);;",
-            "CSV Dosyaları (*.csv);;",
-            "Excel Dosyaları (*.xlsx *.xls);;",
+            "Veri Dosyaları (*.csv *.txt *.xlsx *.xlsm *.xls *.ods *.tdm *.tdx *.tdms);;",
+            "CSV / Metin Dosyaları (*.csv *.txt);;",
+            "Excel Dosyaları (*.xlsx *.xlsm *.xls *.ods);;",
             "NI Dosyaları (*.tdm *.tdx *.tdms);;",
             "TDM/TDX Dosyaları (*.tdm *.tdx);;",
             "TDMS Dosyaları (*.tdms);;",
@@ -108,8 +108,10 @@ class DataOperations:
             
             if hasattr(self.main_window, 'loading_manager'):
                 ext = os.path.splitext(file_path)[1].lower()
-                if ext == '.csv':
+                if ext in ('.csv', '.txt'):
                     subtitle = "CSV → MPAI dönüşümü yapılıyor..."
+                elif ext in ('.xlsx', '.xlsm', '.xls', '.ods'):
+                    subtitle = "Excel → MPAI dönüşümü yapılıyor..."
                 elif ext in ('.tdm', '.tdx', '.tdms'):
                     fmt = ext.lstrip('.').upper()
                     subtitle = f"{fmt} → MPAI dönüşümü yapılıyor..."
@@ -125,13 +127,28 @@ class DataOperations:
             # Check if file already open
             existing_index = file_manager.is_file_already_open(file_path)
             if existing_index >= 0:
-                file_manager.file_tab_widget.setCurrentIndex(existing_index)
                 if hasattr(self.main_window, 'loading_manager'):
                     self.main_window.loading_manager.finish_operation("file_loading")
-                QMessageBox.information(
+                reply = QMessageBox.question(
                     self.main_window,
                     "Dosya Zaten Açık",
-                    f"'{filename}' dosyası zaten açık.\nİlgili sekmeye geçildi."
+                    f"'{filename}' dosyası zaten açık.\n\n"
+                    f"Yeni import ayarlarıyla yeniden yüklensin mi?\n"
+                    f"Bu sekmedeki grafik düzeni, filtreler ve kaydedilmemiş "
+                    f"değişiklikler kaybolur.",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply != QMessageBox.Yes:
+                    file_manager.file_tab_widget.setCurrentIndex(existing_index)
+                    return
+
+                # Close the open copy first; its temp MPAI uses the same cache
+                # path, so the new load starts only after it has been released
+                logger.info(f"[RELOAD] Reloading '{filename}' with new import settings")
+                file_manager.close_file_and_cleanup(
+                    existing_index,
+                    on_done=lambda: self.load_data_with_settings(settings)
                 )
                 return
             
@@ -203,6 +220,35 @@ class DataOperations:
             if hasattr(self.main_window, 'status_bar'):
                 self.main_window.status_bar.showMessage("Dosya yükleme başarısız", 5000)
     
+    def show_non_numeric_warning(self, filename: str, report: Dict[str, Any]):
+        """
+        Sayıya çevrilemeyip 0 olarak alınan değerleri kullanıcıya bildir.
+
+        Args:
+            filename: Dosya adı
+            report: Kolon -> [0 yapılan değer sayısı, dolu değer sayısı]
+        """
+        if not report:
+            return
+        def fmt(n: int) -> str:
+            return f"{n:,}".replace(",", ".")  # Türkçe binlik ayırıcı
+        
+        lines = []
+        for col, (failed, total) in list(report.items())[:10]:
+            if failed >= total:
+                lines.append(f"• {col}: tüm değerler metin ({fmt(failed)} değer)")
+            else:
+                lines.append(f"• {col}: {fmt(failed)} / {fmt(total)} değer")
+        if len(report) > 10:
+            lines.append(f"• ... ve {len(report) - 10} kolon daha")
+        logger.warning(f"[NON-NUMERIC] {filename}: {report}")
+        QMessageBox.information(
+            self.main_window,
+            "Sayısal Olmayan Değerler",
+            f"'{filename}' içinde sayıya çevrilemeyen değerler bulundu.\n"
+            f"Bu değerler 0 olarak alındı:\n\n" + "\n".join(lines)
+        )
+
     def show_data_quality_summary(self, df: pl.DataFrame, filename: str = ""):
         """
         Yüklenen verinin kalite özetini göster.

@@ -5,12 +5,13 @@ Handles multiple CSV file management with isolated settings and state.
 Max 3 files can be open simultaneously for performance.
 """
 
+import gc
 import logging
 import os
 import shutil
-from typing import Dict, List, Optional, Any
+from typing import Any, Callable, Dict, List, Optional
 from PyQt5.QtWidgets import QTabWidget, QWidget, QMessageBox
-from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
+from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject, QTimer
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,10 @@ class MultiFileManager(QObject):
     file_closed = Signal(int)  # file_index
     all_files_closed = Signal()
     save_project_requested = Signal(int)  # file_index - triggers save dialog before close
+
+    # Temp MPAI deletion retries while the closed widget releases its memory maps
+    _CLEANUP_MAX_ATTEMPTS = 5
+    _CLEANUP_RETRY_MS = 500
     
     def __init__(self, parent=None, max_files: int = 3):
         super().__init__(parent)
@@ -310,12 +315,34 @@ class MultiFileManager(QObject):
             if reply == QMessageBox.No:
                 return
         
+        self.close_file_and_cleanup(index)
+
+    def close_file_and_cleanup(self, index: int, on_done: Optional[Callable[[], None]] = None):
+        """
+        Close a file and delete its temp MPAI cache (if it has one).
+        
+        Args:
+            on_done: Called once the cache is deleted (or deletion gave up).
+                Deletion may finish asynchronously while the closed widget
+                releases its memory maps.
+        """
+        if index < 0 or index >= len(self.loaded_files):
+            if on_done:
+                on_done()
+            return
+        file_data = self.loaded_files[index]
+        is_temp_file = file_data.get('settings', {}).get('_is_temp_file', False)
+
+        # Close the file first: the widget and tab must release the data
+        # before the temp MPAI can be deleted (Windows locks memory-mapped files)
+        self.close_file(index)
+
         # === AUTO CLEANUP TEMP FILES (no prompt) ===
         if is_temp_file:
-            self._cleanup_temp_files(file_data)
-        
-        # Close the file
-        self.close_file(index)
+            self._release_reader(file_data)
+            self._cleanup_temp_files(file_data, on_done=on_done)
+        elif on_done:
+            on_done()
     
     def close_file(self, index: int):
         """Close a file by index."""
@@ -325,30 +352,38 @@ class MultiFileManager(QObject):
         filename = self.loaded_files[index].get('filename', 'Unknown')
         logger.info(f"Closing file: {filename} (index: {index})")
         
-        # Remove tab
+        # Remove tab. removeTab() changes the current tab and would emit
+        # currentChanged while loaded_files still holds the closed file, so
+        # indices would point at the wrong file. Signals are blocked and the
+        # switch is emitted explicitly below, after the indices are consistent.
+        self.file_tab_widget.blockSignals(True)
         self.file_tab_widget.removeTab(index)
-        
+        self.file_tab_widget.blockSignals(False)
+
         # Remove from list
         del self.loaded_files[index]
-        
-        # Update active index
+        was_active = (index == self.active_file_index)
+
+        # Listeners drop the closed file's widget and shift later indices down
+        self.file_closed.emit(index)
+
         if len(self.loaded_files) == 0:
             # No files left
             self.active_file_index = -1
             self.file_tab_widget.setVisible(False)
             self.all_files_closed.emit()
-            
-        elif index == self.active_file_index:
-            # Active file was closed, switch to another
+        elif was_active:
+            # Active file was closed, switch to the neighbour
             new_index = min(index, len(self.loaded_files) - 1)
+            self.active_file_index = new_index
+            self.file_tab_widget.blockSignals(True)
             self.file_tab_widget.setCurrentIndex(new_index)
-            # _on_tab_changed will be called automatically
-        else:
-            # Non-active file was closed
-            if index < self.active_file_index:
-                self.active_file_index -= 1
-        
-        self.file_closed.emit(index)
+            self.file_tab_widget.blockSignals(False)
+            self.file_switched.emit(new_index, -1)
+        elif index < self.active_file_index:
+            # Non-active file before the active one: active shifts down
+            self.active_file_index -= 1
+
         logger.info(f"File closed. Remaining: {len(self.loaded_files)}/{self.max_files}")
     
     def close_all_files(self):
@@ -364,19 +399,45 @@ class MultiFileManager(QObject):
         """Get active file index."""
         return self.active_file_index
     
-    def _cleanup_temp_files(self, file_data: Dict[str, Any]):
-        """Delete temp MPAI files for a closed file."""
+    def _release_reader(self, file_data: Dict[str, Any]):
+        """Close the file's MPAI reader so its memory maps are released."""
+        reader = file_data.get('df')
+        if reader is not None and hasattr(reader, 'close'):
+            try:
+                reader.close()
+            except Exception as e:
+                logger.debug(f"[CLEANUP] Reader close failed: {e}")
+        file_data['df'] = None
+
+    def _cleanup_temp_files(self, file_data: Dict[str, Any], attempt: int = 0,
+                            on_done: Optional[Callable[[], None]] = None):
+        """
+        Delete temp MPAI files for a closed file.
+
+        The closed widget is destroyed via deleteLater(), so its views into
+        the memory maps may live until the next event loop pass. If Windows
+        still reports the files as in use, retry a few times after
+        garbage collection.
+        """
         settings = file_data.get('settings', {})
-        
+
         # Delete .mpai directory
         temp_mpai = settings.get('_temp_mpai_path')
         if temp_mpai and os.path.exists(temp_mpai):
+            gc.collect()
             try:
                 if os.path.isdir(temp_mpai):
                     shutil.rmtree(temp_mpai)
                 else:
                     os.remove(temp_mpai)
                 logger.info(f"[CLEANUP] Deleted temp MPAI: {temp_mpai}")
+            except PermissionError as e:
+                if attempt < self._CLEANUP_MAX_ATTEMPTS:
+                    logger.debug(f"[CLEANUP] Temp MPAI still in use, retrying ({attempt + 1}): {e}")
+                    QTimer.singleShot(self._CLEANUP_RETRY_MS,
+                                      lambda: self._cleanup_temp_files(file_data, attempt + 1, on_done))
+                    return
+                logger.warning(f"[CLEANUP] Failed to delete temp MPAI: {e}")
             except Exception as e:
                 logger.warning(f"[CLEANUP] Failed to delete temp MPAI: {e}")
         
@@ -388,4 +449,7 @@ class MultiFileManager(QObject):
                 logger.info(f"[CLEANUP] Deleted temp settings: {temp_settings}")
             except Exception as e:
                 logger.warning(f"[CLEANUP] Failed to delete temp settings: {e}")
+        
+        if on_done:
+            on_done()
 

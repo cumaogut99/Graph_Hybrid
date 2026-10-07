@@ -200,17 +200,17 @@ class CorrelationsPanelManager:
             }}
             QGroupBox {{
                 font-weight: bold;
-                font-size: 14px;
-                border: 2px solid {border_color};
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 10px;
+                font-size: 12px;
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                margin-top: 8px;
+                padding-top: 6px;
                 background-color: {surface_bg};
             }}
             QGroupBox::title {{
                 subcontrol-origin: margin;
                 left: 10px;
-                padding: 0 8px 0 8px;
+                padding: 0 6px 0 6px;
                 background-color: {widget_bg};
                 border-radius: 4px;
                 color: {primary_color};
@@ -219,11 +219,11 @@ class CorrelationsPanelManager:
                 background-color: {surface_bg};
                 border: 1px solid {border_color};
                 border-radius: 6px;
-                padding: 8px 16px;
+                padding: 3px 10px;
                 color: {text_color};
-                font-size: 13px;
+                font-size: 11px;
                 font-weight: 600;
-                min-height: 28px;
+                min-height: 20px;
             }}
             QPushButton:hover {{
                 background-color: {primary_color};
@@ -232,29 +232,29 @@ class CorrelationsPanelManager:
             }}
             QLabel {{
                 color: {secondary_text};
-                font-size: 13px;
-                padding: 2px;
+                font-size: 11px;
+                padding: 1px;
             }}
             QComboBox, QLineEdit, QSpinBox {{
                 background-color: {surface_bg};
                 border: 1px solid {border_color};
                 border-radius: 4px;
-                padding: 6px;
+                padding: 3px 6px;
                 color: {text_color};
-                font-size: 13px;
+                font-size: 11px;
             }}
             QComboBox:hover, QLineEdit:hover, QSpinBox:hover {{
                 border-color: {primary_color};
             }}
             QCheckBox {{
                 color: {text_color};
-                font-size: 13px;
+                font-size: 11px;
                 font-weight: 600;
-                spacing: 8px;
+                spacing: 6px;
             }}
             QCheckBox::indicator {{
-                width: 16px;
-                height: 16px;
+                width: 13px;
+                height: 13px;
                 border: 2px solid {border_color};
                 border-radius: 3px;
                 background-color: {surface_bg};
@@ -267,11 +267,11 @@ class CorrelationsPanelManager:
                 background-color: {surface_bg};
                 border: 1px solid {border_color};
                 border-radius: 6px;
-                padding: 5px;
-                font-size: 13px;
+                padding: 3px;
+                font-size: 11px;
             }}
             QListWidget::item {{
-                padding: 8px;
+                padding: 4px 6px;
                 border-bottom: 1px solid {border_color};
                 border-radius: 4px;
                 margin: 2px;
@@ -286,7 +286,7 @@ class CorrelationsPanelManager:
                 border-radius: 4px;
                 background-color: {surface_bg};
                 text-align: center;
-                font-size: 12px;
+                font-size: 10px;
                 color: {text_color};
             }}
             QProgressBar::chunk {{
@@ -310,12 +310,12 @@ class CorrelationsPanelManager:
         self._apply_theme_styling()
         
         layout = QVBoxLayout(self.panel)
-        layout.setSpacing(10)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(6)
+        layout.setContentsMargins(10, 8, 10, 8)
         
         # Title
         title = QLabel("📈 Correlations Analysis")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #4a90e2; margin-bottom: 10px;")
+        title.setStyleSheet("font-size: 13px; font-weight: bold; color: #4a90e2; margin-bottom: 4px;")
         layout.addWidget(title)
         
         # Analysis Control Group
@@ -390,7 +390,7 @@ class CorrelationsPanelManager:
         
         # Manual calculate button
         calc_btn = QPushButton("Calculate")
-        calc_btn.setStyleSheet("padding: 4px 12px; font-size: 12px;")
+        calc_btn.setStyleSheet("padding: 3px 10px; font-size: 11px;")
         calc_btn.clicked.connect(self._calculate_correlations)
         config_layout.addWidget(calc_btn)
         
@@ -403,7 +403,7 @@ class CorrelationsPanelManager:
         
         # Info label
         info_label = QLabel("💡 Results show correlation with target parameter (-1 to +1)")
-        info_label.setStyleSheet("font-size: 12px; color: #888888; font-style: italic;")
+        info_label.setStyleSheet("font-size: 10px; color: #888888; font-style: italic;")
         results_layout.addWidget(info_label)
         
         # Results list - will expand to fill available space
@@ -645,7 +645,7 @@ class CorrelationsPanelManager:
         
         # Set font weight for strong correlations
         if abs(correlation) >= 0.8:
-            font = QFont()
+            font = QFont(self.results_list.font())  # keep the list's size
             font.setBold(True)
             item.setFont(font)
             

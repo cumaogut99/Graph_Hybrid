@@ -56,7 +56,6 @@ class StatisticsPanel(QWidget):
     """
     
     # Signal emitted when a graph title is clicked
-    graph_settings_requested = pyqtSignal(int)  # graph_index
     signal_color_changed = pyqtSignal(str, str) # Emits signal_name and new_color_hex
     signal_remove_requested = pyqtSignal(str, int) # Emits signal_name and graph_index
     graph_reorder_requested = pyqtSignal(int, int)  # from_index, to_index
@@ -836,7 +835,7 @@ class StatisticsPanel(QWidget):
     def _create_graph_section(self, graph_index: int):
         """Create a new graph section with its own table and controls."""
         # Create group box for this graph with new title format
-        section_title = f"📊 G{graph_index + 1} Filters"
+        section_title = f"📊 Graph {graph_index + 1}"
         graph_section = ClickableGroupBox(section_title, graph_index)
         
         # Main layout for the section - minimal padding for space efficiency
@@ -886,9 +885,6 @@ class StatisticsPanel(QWidget):
         
         # Apply current column widths from header table if available
         self._sync_new_table_widths(graph_table)
-        
-        # Connect click signal
-        graph_section.clicked.connect(self.graph_settings_requested.emit)
         
         # Connect drag-and-drop signals
         graph_section.drop_requested.connect(self._on_graph_drop_requested)

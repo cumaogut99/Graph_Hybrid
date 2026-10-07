@@ -47,10 +47,10 @@ class ParameterList(QWidget):
         # Search box
         search_container = QWidget()
         search_layout = QHBoxLayout(search_container)
-        search_layout.setContentsMargins(8, 8, 8, 8)
+        search_layout.setContentsMargins(8, 6, 8, 4)
         
         search_label = QLabel("🔍")
-        search_label.setFont(QFont("Segoe UI Emoji", 12))
+        search_label.setStyleSheet("font-size: 11px;")
         search_layout.addWidget(search_label)
         
         self.search_box = QLineEdit()
@@ -60,7 +60,7 @@ class ParameterList(QWidget):
                 background: rgba(255, 255, 255, 0.1);
                 border: 1px solid rgba(74, 144, 226, 0.3);
                 border-radius: 4px;
-                padding: 6px;
+                padding: 4px 6px;
                 color: #e6f3ff;
                 font-size: 11px;
             }
@@ -85,8 +85,8 @@ class ParameterList(QWidget):
             }
             QScrollBar:vertical {
                 background: rgba(255, 255, 255, 0.05);
-                width: 12px;
-                border-radius: 6px;
+                width: 8px;
+                border-radius: 4px;
             }
             QScrollBar::handle:vertical {
                 background: rgba(74, 144, 226, 0.5);
@@ -102,7 +102,7 @@ class ParameterList(QWidget):
         self.parameters_container = QWidget()
         self.parameters_layout = QVBoxLayout(self.parameters_container)
         self.parameters_layout.setContentsMargins(8, 4, 8, 4)
-        self.parameters_layout.setSpacing(6)
+        self.parameters_layout.setSpacing(4)
         
         scroll_area.setWidget(self.parameters_container)
         main_layout.addWidget(scroll_area, 1)
@@ -122,7 +122,7 @@ class ParameterList(QWidget):
         
         # Add placeholder message
         placeholder = QLabel("📂 No data loaded\n\nLoad a CSV file to see available columns")
-        placeholder.setFont(QFont("Segoe UI", 10))
+        placeholder.setFont(QFont("Segoe UI", 8))
         placeholder.setAlignment(Qt.AlignCenter)
         placeholder.setStyleSheet("""
             color: #a0c0e0;
@@ -159,10 +159,10 @@ class ParameterList(QWidget):
         
         # Info label
         info_label = QLabel(f"📊 Available Columns ({len(column_names)})")
-        info_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        info_label.setFont(QFont("Segoe UI", 9, QFont.Bold))
         info_label.setStyleSheet("""
             color: #4a90e2;
-            padding: 8px 4px 8px 4px;
+            padding: 4px 2px;
             background: transparent;
         """)
         self.parameters_layout.addWidget(info_label)
@@ -248,10 +248,10 @@ class ParameterList(QWidget):
         else:
             # No info label, create one and add parameter
             info_label = QLabel(f"📊 Available Columns ({len(self.parameter_items)})")
-            info_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
+            info_label.setFont(QFont("Segoe UI", 9, QFont.Bold))
             info_label.setStyleSheet("""
                 color: #4a90e2;
-                padding: 8px 4px 8px 4px;
+                padding: 4px 2px;
                 background: transparent;
             """)
             self.parameters_layout.insertWidget(0, info_label)

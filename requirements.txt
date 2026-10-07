@@ -11,6 +11,7 @@ pandas>=1.4.0
 
 # Görselleştirme
 matplotlib>=3.5.0
+pyqtgraph>=0.13.0
 
 # EXE Build (geliştirme için)
 pyinstaller>=5.0.0
@@ -18,5 +19,6 @@ pillow>=8.0.0
 
 # Ek Kütüphaneler
 openpyxl>=3.0.0   # Excel dosya desteği için
+fastexcel>=0.12.0 # Hızlı Excel okuma (.xlsx/.xls/.ods)
 psutil>=5.9.0     # Bellek takibi için
 nptdms>=1.0.0     # NI TDMS dosya desteği için

@@ -568,16 +568,25 @@ class MpaiDirectoryReader:
         
         return times, values, "reduced"
 
+    def _sample_position(self, t: float) -> float:
+        """Fractional sample index of time t.
+
+        dt is usually derived from a measured sampling rate, so (t - t0) / dt
+        lands just below a whole number (5999.9999 for sample 6000); callers
+        must round, not truncate.
+        """
+        return (t - self.t0) / self.dt
+
     def get_cursor_value(self, ch_id: int, t: float) -> float:
         """
-        Gets a single scalar value at time t. 
+        Gets a single scalar value at time t (nearest sample).
         Uses O(1) random access on raw file.
         """
         if ch_id not in self.channels:
             return 0.0
             
         ch = self.channels[ch_id]
-        idx = int((t - self.t0) / self.dt)
+        idx = int(round(self._sample_position(t)))
         
         # Boundary check
         if 0 <= idx < ch["sample_count"]:
@@ -602,8 +611,10 @@ class MpaiDirectoryReader:
         
         # Temporary: Just fetch raw if small (< 1M samples), else Reduced
         ch = self.channels[ch_id]
-        idx_start = max(0, int((t_start - self.t0) / self.dt))
-        idx_end = min(ch["sample_count"], int((t_end - self.t0) / self.dt))
+        # Samples inside [t_start, t_end], both cursor samples included
+        eps = 1e-6
+        idx_start = max(0, int(np.ceil(self._sample_position(t_start) - eps)))
+        idx_end = min(ch["sample_count"], int(np.floor(self._sample_position(t_end) + eps)) + 1)
         count = idx_end - idx_start
         
         if count <= 0:

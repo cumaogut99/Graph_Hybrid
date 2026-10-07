@@ -86,7 +86,7 @@ class PlotTooltipsHelper:
                         anchor=(0, 1)
                     )
                     tooltip_item.setZValue(1000)
-                    plot_widget.addItem(tooltip_item)
+                    plot_widget.addItem(tooltip_item, ignoreBounds=True)
                     tooltip_item.hide()
                     self.tooltip_items[plot_widget] = tooltip_item
                     logger.debug(f"Created tooltip item for plot widget")

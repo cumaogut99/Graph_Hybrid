@@ -12,7 +12,7 @@ import numpy as np
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QScrollArea, QLabel, QDialog, QGroupBox, 
     QTabWidget, QGridLayout, QStackedWidget, QToolButton,
-    QTabBar
+    QTabBar, QMessageBox
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal as Signal, QObject, QThread
 from PyQt5.QtGui import QIcon
@@ -45,7 +45,6 @@ from src.graphics.graph_container import GraphContainer
 from src.managers.status_bar_manager import StatusBarManager
 from src.graphics.loading_overlay import LoadingManager
 from src.managers.correlations_panel_manager import CorrelationsPanelManager
-from src.utils.feature_stability_tracker import FeatureStabilityTracker
 
 
 logger = logging.getLogger(__name__)
@@ -142,7 +141,7 @@ class TimeGraphWidget(QWidget):
         self.graph_settings_panel_manager = GraphSettingsPanelManager(self)
         self.parameters_panel_manager = ParametersPanelManager(self)
         self.theme_manager = ThemeManager()
-        self.bitmask_panel_manager = BitmaskPanelManager(self.data_manager, self.theme_manager, self)
+        self.bitmask_panel_manager = BitmaskPanelManager(self.signal_processor, self.theme_manager, self)
         
         self.cursor_manager = None
         self.statistics_panel = StatisticsPanel()
@@ -176,7 +175,7 @@ class TimeGraphWidget(QWidget):
         """Setup the main UI layout with a QTabWidget."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(self.toolbar_manager.get_toolbar())
+        main_layout.addWidget(self.toolbar_manager.get_title_bar())
         
         self.content_splitter = QSplitter(Qt.Horizontal)
         main_layout.addWidget(self.content_splitter)
@@ -250,7 +249,6 @@ class TimeGraphWidget(QWidget):
         self.statistics_panel.setMinimumWidth(300)
         
         # Connect graph settings signal
-        self.statistics_panel.graph_settings_requested.connect(self._on_graph_settings_requested)
         self.statistics_panel.signal_color_changed.connect(self._on_signal_color_changed)
         self.statistics_panel.signal_remove_requested.connect(self._on_signal_remove_requested)
         self.statistics_panel.graph_reorder_requested.connect(self._on_graph_reorder_requested)
@@ -493,12 +491,10 @@ class TimeGraphWidget(QWidget):
             self.cursor_manager = None
         
         if plot_widgets:
-            # Force an update of the view range before creating cursors.
-            # This is critical to prevent a race condition where cursors are
-            # created before the plot's autorange has been calculated.
-            for pw in plot_widgets:
-                pw.autoRange()
-
+            # No autoRange here: the X axes of a tab are linked, so ranging
+            # every plot let the last (possibly empty) plot decide the view
+            # and discarded the user's zoom on every redraw. The view is set
+            # by _redraw_all_signals; new cursors go to 1/3 and 2/3 of it.
             self.cursor_manager = CursorManager(plot_widgets)
             
             # Assign the new cursor manager to the active container
@@ -584,6 +580,13 @@ class TimeGraphWidget(QWidget):
 
         self.legend_manager.clear_all_items()
 
+        # Tabs that showed no signal before: their X range is not a user's
+        # zoom, so it is fitted to the data drawn now (see below)
+        tabs_without_data = {
+            tab_index for tab_index, container in enumerate(self.graph_containers)
+            if not container.plot_manager.has_data()
+        }
+
         for tab_index, container in enumerate(self.graph_containers):
             container.plot_manager.clear_all_signals()
             
@@ -609,66 +612,39 @@ class TimeGraphWidget(QWidget):
                                 last_value = float(signal_data['y_data'][-1]) if signal_data['y_data'].size > 0 else 0.0
                             self.legend_manager.add_legend_item(name, color, last_value)
         
-        # Restore cursors after redrawing signals
-        if current_mode and current_mode != "none":
-            # Use a timer to ensure plots are fully ready before restoring cursors
-            QTimer.singleShot(50, lambda: self._restore_cursors_after_redraw(current_mode, cursor_positions))
-        
         # Apply saved graph settings after redrawing signals
         self._apply_saved_graph_settings()
-        
-        # Apply limit lines BEFORE auto-ranging so they are included in the view
-        self._apply_limit_lines_to_all_graphs()
-        
-        # CRITICAL FIX: Only auto-range Y axis, preserve X range to prevent zoom jumping
-        # when adding signals to an empty graph in multi-subplot layout
+
+        # View ranges. The X axes of a tab are linked to its first plot.
+        # - Y: every plot with signals is fitted to its own data.
+        # - X: kept as it was (the user's zoom/pan), except in a tab that had
+        #   no signal before, where it is fitted to all data of the tab.
+        # Empty plots are left alone: ranging them would zoom onto the cursors.
+        refitted_tabs = set()
         for tab_index, container in enumerate(self.graph_containers):
-            plot_widgets = container.plot_manager.get_plot_widgets()
-            
-            # Save X-range from first plot before any auto-range
-            saved_x_range = None
-            if plot_widgets:
-                try:
-                    saved_x_range = plot_widgets[0].getViewBox().viewRange()[0]
-                    print(f"[REDRAW] Tab {tab_index}: saved_x_range = {saved_x_range}")
-                except:
-                    pass
-            
-            # Check if this is a default/empty X-range that should be auto-ranged
-            is_default_range = (saved_x_range is None or 
-                               saved_x_range == [0, 1] or 
-                               (abs(saved_x_range[0]) < 0.01 and abs(saved_x_range[1] - 1.0) < 0.1))
-            print(f"[REDRAW] Tab {tab_index}: is_default_range = {is_default_range}")
-            
-            for idx, plot_widget in enumerate(plot_widgets):
-                if is_default_range:
-                    # Default range - do full autoRange for both axes
-                    print(f"[REDRAW] Tab {tab_index}, Plot {idx}: FULL autoRange (default range)")
-                    plot_widget.enableAutoRange(axis='x', enable=True)
-                    plot_widget.enableAutoRange(axis='y', enable=True)
-                    plot_widget.autoRange()
-                    plot_widget.enableAutoRange(axis='x', enable=False)
-                    plot_widget.enableAutoRange(axis='y', enable=False)
-                else:
-                    # Real data range - only auto-range Y axis, preserve X
-                    print(f"[REDRAW] Tab {tab_index}, Plot {idx}: Y-only autoRange (preserving X)")
-                    plot_widget.enableAutoRange(axis='y', enable=True)
-                    plot_widget.getViewBox().autoRange(padding=0.02, items=None)
-                    plot_widget.enableAutoRange(axis='y', enable=False)
-            
-            # Restore X-range if we had real data range before (not default)
-            if not is_default_range and saved_x_range:
-                for plot_widget in plot_widgets:
-                    try:
-                        plot_widget.setXRange(saved_x_range[0], saved_x_range[1], padding=0)
-                    except:
-                        pass
-                after_restore = plot_widgets[0].getViewBox().viewRange()[0] if plot_widgets else None
-                print(f"[REDRAW] Tab {tab_index}: after X-range restore = {after_restore}")
-            elif is_default_range and plot_widgets:
-                after_auto = plot_widgets[0].getViewBox().viewRange()[0]
-                print(f"[REDRAW] Tab {tab_index}: after full autoRange = {after_auto}")
-                
+            plot_manager = container.plot_manager
+            plot_widgets = plot_manager.get_plot_widgets()
+            if not plot_widgets:
+                continue
+            saved_x_range = plot_widgets[0].getViewBox().viewRange()[0]
+            for plot_widget in plot_widgets:
+                plot_widget.enableAutoRange(axis='x', enable=False)
+                plot_widget.enableAutoRange(axis='y', enable=False)
+            plot_manager.fit_y_to_data()
+            if tab_index in tabs_without_data and plot_manager.has_data():
+                plot_manager.fit_x_to_data()
+                refitted_tabs.add(tab_index)
+            else:
+                plot_widgets[0].setXRange(saved_x_range[0], saved_x_range[1], padding=0)
+
+        # Restore cursors after redrawing signals. Where the X range was just
+        # fitted to new data the old positions are meaningless (they were
+        # placed on an empty plot), so the cursors start at 1/3 and 2/3 again.
+        if current_mode and current_mode != "none":
+            if self.tab_widget.currentIndex() in refitted_tabs:
+                cursor_positions = {}
+            # Use a timer to ensure plots are fully ready before restoring cursors
+            QTimer.singleShot(50, lambda: self._restore_cursors_after_redraw(current_mode, cursor_positions))
 
         logger.debug("Auto-ranged all plots (X and Y axes) after signal redraw, settings apply, and limit lines")
         logger.info(f"[PERF] ========== _redraw_all_signals() TOTAL: {(time.time()-start_time)*1000:.1f}ms ==========")
@@ -682,65 +658,22 @@ class TimeGraphWidget(QWidget):
             self.correlations_panel_manager.update_available_parameters(all_signal_names)
             self.correlations_panel_manager.on_data_changed()
         
-        # Reapply active filters if any exist
-        if self.filter_manager.has_active_filters():
-            # Use a timer to ensure plots are fully ready before reapplying filters
-            # Debounce filter reapplication to prevent multiple rapid calls
-            if hasattr(self, '_filter_reapply_timer'):
-                self._filter_reapply_timer.stop()
-            
-            self._filter_reapply_timer = QTimer()
-            self._filter_reapply_timer.setSingleShot(True)
-            self._filter_reapply_timer.timeout.connect(self._reapply_active_filters)
-            self._filter_reapply_timer.start(200)  # 200ms debounce
+        # A range filter already replaced the signal data drawn above, so it is
+        # not re-applied here. Zoom-based (LOD) reloading must stay off while
+        # it is active, otherwise zooming would reload unfiltered file data.
+        filter_active = self.filter_manager.has_active_filters()
+        for container in self.graph_containers:
+            container.plot_manager._lod_disabled = filter_active
+        if hasattr(self, 'toolbar_manager') and self.toolbar_manager:
+            self.toolbar_manager.set_filter_active(filter_active)
+        if hasattr(self, 'bitmask_panel_manager') and self.bitmask_panel_manager:
+            self.bitmask_panel_manager.set_filter_active(filter_active)
         
         logger.debug("Redrew all signals across all tabs.")
     
-    def _apply_limit_lines_to_all_graphs(self):
-        """Apply limit lines to all graphs based on saved settings."""
-        try:
-            active_tab_index = self.tab_widget.currentIndex()
-            if active_tab_index < 0 or active_tab_index >= len(self.graph_containers):
-                return
-                
-            container = self.graph_containers[active_tab_index]
-            plot_widgets = container.plot_manager.get_plot_widgets()
-            
-            for graph_index, plot_widget in enumerate(plot_widgets):
-                # Get saved limit settings for this graph
-                limits_settings = self._get_graph_setting(graph_index, 'limits', {})
-                
-                if limits_settings and self.graph_renderer:
-                    # Get visible signals for this graph
-                    visible_signals = self.graph_signal_mapping.get(active_tab_index, {}).get(graph_index, [])
-                    
-                    # Apply limit lines
-                    self.graph_renderer._apply_limit_lines(plot_widget, graph_index, visible_signals)
-                    logger.debug(f"Applied limit lines to graph {graph_index} with {len(limits_settings)} limit configs")
-                    
-        except Exception as e:
-            logger.error(f"Error applying limit lines to all graphs: {e}")
-
-    def _reapply_active_filters(self):
-        """Reapply active filters after signal redraw."""
-        try:
-            active_filters = self.filter_manager.get_active_filters()
-            total_filters = sum(len(graphs) for graphs in active_filters.values())
-            
-            for tab_index, graph_filters in active_filters.items():
-                if tab_index < len(self.graph_containers):
-                    # Reapply each graph's filter independently
-                    for graph_index, filter_data in graph_filters.items():
-                        self._apply_range_filter(filter_data)
-                else:
-                    self.filter_manager.remove_filter(tab_index)
-        except Exception as e:
-            logger.error(f"Error reapplying filters: {e}")
-
     def clear_active_filters(self):
-        """Clear all active filters and redraw signals using filter manager."""
-        self.filter_manager.clear_filters()
-        self._redraw_all_signals()
+        """Clear the range filter and show the original data again."""
+        self._apply_range_filter({'conditions': []})
 
     def _restore_cursors_after_redraw(self, cursor_mode: str, saved_positions: dict):
         """Restore cursors after signal redraw operation."""
@@ -774,6 +707,14 @@ class TimeGraphWidget(QWidget):
             import traceback
             traceback.print_exc()
     
+    def _refresh_statistics(self, cursor_positions: dict):
+        """Recompute statistics for the given cursor positions right away."""
+        if getattr(self, '_suppress_statistics_updates', False):
+            QTimer.singleShot(100, lambda: self._refresh_statistics(cursor_positions))
+            return
+        self._pending_cursor_positions = cursor_positions
+        self._perform_statistics_update()
+
     def _enable_statistics_updates_after_redraw(self):
         """Re-enable statistics updates after redraw operation completes."""
         self._suppress_statistics_updates = False
@@ -785,12 +726,13 @@ class TimeGraphWidget(QWidget):
             if not self.cursor_manager or not positions:
                 return
                 
-            # Restore cursor positions if available
-            if 'cursor1' in positions and hasattr(self.cursor_manager, 'set_cursor_position'):
-                self.cursor_manager.set_cursor_position("dual_1", positions['cursor1'])
-                
-            if 'cursor2' in positions and hasattr(self.cursor_manager, 'set_cursor_position'):
-                self.cursor_manager.set_cursor_position("dual_2", positions['cursor2'])
+            # CursorManager.get_cursor_positions() returns 'c1'/'c2'
+            c1 = positions.get('c1', positions.get('cursor1'))
+            c2 = positions.get('c2', positions.get('cursor2'))
+            if c1 is not None:
+                self.cursor_manager.set_cursor_position("dual_1", c1)
+            if c2 is not None:
+                self.cursor_manager.set_cursor_position("dual_2", c2)
                 
             logger.debug(f"Restored cursor positions: {positions}")
             
@@ -964,60 +906,19 @@ class TimeGraphWidget(QWidget):
         else:
             logger.info(f"Column '{column_name}' already plotted on graph {graph_index}")
     
-    def _on_graph_settings_requested(self, graph_index: int):
-        """Open the advanced graph settings dialog for comprehensive configuration."""
-        # CRITICAL: Capture the tab index when dialog is opened
-        # This ensures filter/limits are applied to the CORRECT tab
-        target_tab_index = self.tab_widget.currentIndex()
-        if target_tab_index < 0:
+    def _on_filters_requested(self):
+        """Open the Advanced Settings (range filter) dialog; applies to all graphs."""
+        all_signals_data = self.signal_processor.get_all_signals()
+        all_signals = list(all_signals_data.keys()) if all_signals_data else []
+        if not all_signals:
+            QMessageBox.information(self, "Range Filters", "Load a data file first.")
             return
 
-        logger.debug(f"Advanced settings requested for graph {graph_index} in tab {target_tab_index}")
-        
-        # Store target_tab_index for later use
-        self._dialog_target_tab = target_tab_index
-        self._dialog_target_graph = graph_index
-        
-        # Debug signal processor access
-        logger.debug(f"Signal processor: {self.signal_processor}")
-        logger.debug(f"Signal processor type: {type(self.signal_processor)}")
-        
-        all_signals_data = self.signal_processor.get_all_signals()
-        logger.debug(f"All signals data: {all_signals_data}")
-        logger.debug(f"All signals data type: {type(all_signals_data)}")
-        logger.debug(f"All signals count: {len(all_signals_data) if all_signals_data else 0}")
-        
-        all_signals = list(all_signals_data.keys()) if all_signals_data else []
-        logger.debug(f"All signals keys: {all_signals}")
-        
-        # Get signals currently visible in the specific graph of the target tab
-        visible_signals = self.graph_signal_mapping.get(target_tab_index, {}).get(graph_index, [])
-        
-        # Get saved filter data for this graph if available (from TARGET tab)
-        saved_filter_data = None
-        if hasattr(self, 'filter_manager') and self.filter_manager:
-            active_filters = self.filter_manager.get_active_filters()
-            tab_filters = active_filters.get(target_tab_index, {})
-            # Get filter for specific graph in this tab
-            saved_filter_data = tab_filters.get(graph_index, None)
-            logger.debug(f"Retrieved saved filter data for tab {target_tab_index}, graph {graph_index}: {saved_filter_data}")
-        
-        # Get saved limits data for this graph if available
-        saved_limits_data = self._get_graph_setting(graph_index, 'limits', {})
-        logger.debug(f"Retrieved saved limits data for graph {graph_index}: {saved_limits_data}")
-        
-        # Get saved basic deviation data for this graph if available
-        saved_basic_deviation_data = self._get_graph_setting(graph_index, 'basic_deviation', {})
-        logger.debug(f"Retrieved saved basic deviation data for graph {graph_index}: {saved_basic_deviation_data}")
-        
-        # Use the new advanced settings dialog - parent=None for taskbar visibility
-        dialog = GraphAdvancedSettingsDialog(graph_index, all_signals, visible_signals, 
-                                           saved_filter_data, saved_limits_data, 
-                                           saved_basic_deviation_data, None)
-        
-        # Set proper window icon and title for taskbar
+        dialog = GraphAdvancedSettingsDialog(
+            all_signals, self.filter_manager.get_global_filter(), None  # None: own taskbar entry
+        )
         dialog.setWindowIcon(self.windowIcon() if self.windowIcon() else QIcon())
-        
+
         # Center dialog on parent window
         if self.parent():
             parent_geometry = self.parent().geometry()
@@ -1025,65 +926,9 @@ class TimeGraphWidget(QWidget):
                 parent_geometry.center().x() - dialog.width() // 2,
                 parent_geometry.center().y() - dialog.height() // 2
             )
-        
-        # Connect signals to immediately apply when Apply button is clicked
-        # ✅ FIX: Add tab_index to filter_data before applying
-        def on_range_filter_applied(filter_data):
-            # Ensure tab_index is in filter_data
-            if 'tab_index' not in filter_data:
-                filter_data['tab_index'] = target_tab_index
-                logger.info(f"[DIALOG] Added tab_index={target_tab_index} to filter_data")
-            self._apply_range_filter(filter_data)
-        
-        dialog.range_filter_applied.connect(on_range_filter_applied)
-        dialog.basic_deviation_applied.connect(self._on_basic_deviation_applied)
-        dialog.limits_applied.connect(self._on_limits_applied_from_dialog)
-        
-        if dialog.exec_() == QDialog.Accepted:
-            logger.info(f"[DIALOG] Dialog accepted for graph {graph_index}")
-            
-            # Update signal selections (parameters panel)
-            # CRITICAL: Use target_tab_index (dialog açıldığı tab), not current tab!
-            selected_signals = dialog.get_selected_signals()
-            
-            # Ensure the mapping for the TARGET tab exists
-            if target_tab_index not in self.graph_signal_mapping:
-                self.graph_signal_mapping[target_tab_index] = {}
-                
-            self.graph_signal_mapping[target_tab_index][graph_index] = selected_signals
-            logger.debug(f"[DIALOG] Updated signals for Tab {target_tab_index}, Graph {graph_index}: {selected_signals}")
-            
-            # Redraw all signals to show updated parameter selection
-            self._redraw_all_signals()
-            
-            # NOTE: Filter, Limits, ve Deviation ayarları zaten dialog.accept() içinde
-            # _apply_settings() tarafından uygulandı. Tekrar apply etmeye gerek yok!
-            
-    def _on_basic_deviation_applied(self, graph_index: int, deviation_settings: Dict[str, Any]):
-        """Handle basic deviation settings application."""
-        # CRITICAL: Use target tab from dialog, NOT current active tab!
-        target_tab_index = getattr(self, '_dialog_target_tab', self.tab_widget.currentIndex())
-        logger.info(f"[DEVIATION] Applying basic deviation settings to graph {graph_index} on tab {target_tab_index}")
-        logger.debug(f"[DEVIATION] Settings: {deviation_settings}")
 
-        try:
-            # Save settings for persistence
-            self._save_graph_setting(graph_index, 'basic_deviation', deviation_settings)
-            logger.info(f"[DEVIATION] Saved deviation settings for graph {graph_index}")
-            
-            # Apply deviation settings to graph renderer
-            if hasattr(self, 'graph_renderer') and self.graph_renderer:
-                self.graph_renderer.set_basic_deviation_settings(target_tab_index, graph_index, deviation_settings)
-                logger.info(f"[DEVIATION] Set basic deviation settings in renderer for graph {graph_index}")
-                
-                # Force immediate redraw to show deviation lines
-                self._redraw_all_signals()
-                logger.info(f"[DEVIATION] Triggered redraw to show deviation visualization")
-            else:
-                logger.warning("[DEVIATION] Graph renderer not available for basic deviation application")
-
-        except Exception as e:
-            logger.error(f"[DEVIATION] Error applying basic deviation settings to graph {graph_index}: {e}", exc_info=True)
+        dialog.range_filter_applied.connect(self._apply_range_filter)
+        dialog.exec_()
 
     def _on_plot_clicked(self, plot_index: int, x: float, y: float):
         """Handle plot clicks."""
@@ -1353,7 +1198,6 @@ class TimeGraphWidget(QWidget):
         graph_container.signal_processor = self.signal_processor  # Assign signal processor
         
         # Connect the settings button signal from the new container's plot manager
-        graph_container.plot_manager.settings_requested.connect(self._on_graph_settings_requested)
         
         # Connect drag-drop signal to plot column on graph
         graph_container.column_dropped.connect(self._on_column_dropped_on_graph)
@@ -1636,17 +1480,25 @@ class TimeGraphWidget(QWidget):
 
     def _on_cursor_moved(self, cursor_positions: Dict[str, float]):
         """Handle cursor movement with strict throttling."""
-        # STRICT THROTTLING: Limit to ~30 FPS (33ms)
-        current_time_ms = time.time() * 1000
-        if current_time_ms - getattr(self, '_last_cursor_event_time', 0) < 33:
-            return
-        self._last_cursor_event_time = current_time_ms
-        
         # CRITICAL: Skip statistics updates if suppressed (during graph redraw)
         if getattr(self, '_suppress_statistics_updates', False):
             if hasattr(self, 'statistics_panel') and self.statistics_panel:
                 self.statistics_panel.update_cursor_positions(cursor_positions)
             return
+
+        # STRICT THROTTLING: Limit to ~30 FPS (33ms). Events inside the window
+        # are deferred, not dropped: otherwise the last position of a drag
+        # could be skipped and the statistics would stay at an older position
+        current_time_ms = time.time() * 1000
+        if current_time_ms - getattr(self, '_last_cursor_event_time', 0) < 33:
+            self._pending_cursor_positions = cursor_positions
+            if hasattr(self, 'statistics_panel') and self.statistics_panel:
+                self.statistics_panel.update_cursor_positions(cursor_positions)
+            if not self._statistics_update_timer.isActive():
+                self._statistics_update_timer.setInterval(50)
+                self._statistics_update_timer.start()
+            return
+        self._last_cursor_event_time = current_time_ms
         
         # Store cursor positions for other components
         if cursor_positions:
@@ -1733,481 +1585,110 @@ class TimeGraphWidget(QWidget):
         self.statistics_updated.emit(stats)
         
     def _apply_range_filter(self, filter_data: dict):
-        """Apply range filter to the specified graph using modular components."""
-        
-        logger.info("=" * 80)
-        logger.info("[FILTER] _apply_range_filter() CALLED!")
-        logger.info(f"[FILTER] Received filter_data: {filter_data}")
-        
-        try:
-            # ✅ FIX: Get target tab index from filter_data (stored during save)
-            # This ensures filter is applied to correct tab even during reapplication
-            target_tab_index = filter_data.get('tab_index', None)
-            
-            # Fallback: Use dialog target or current tab
-            if target_tab_index is None:
-                target_tab_index = getattr(self, '_dialog_target_tab', self.tab_widget.currentIndex())
-                logger.warning(f"[FILTER] tab_index not in filter_data (old saved filter or legacy code), using fallback: {target_tab_index}")
-                logger.warning(f"[FILTER] This may happen with old MPAI project files. Filter will still work correctly.")
-            
-            logger.info(f"[FILTER] target_tab_index: {target_tab_index} (from filter_data)")
-            logger.info(f"[FILTER] graph_containers count: {len(self.graph_containers)}")
-            
-            if target_tab_index < 0 or target_tab_index >= len(self.graph_containers):
-                logger.error(f"[FILTER] Invalid target_tab_index: {target_tab_index}")
-                return
-            
-            logger.info(f"[FILTER] Applying filter to target_tab_index: {target_tab_index} (dialog opened for this tab)")
-            
-            # ✅ FIX: Extract conditions and mode FIRST before using them
-            graph_index = filter_data.get('graph_index', 0)
-            conditions = filter_data.get('conditions', [])
-            mode = filter_data.get('mode', 'segmented')
-            
-            # Check if filter can be applied
-            can_apply, reason = self.filter_manager.can_apply_filter(mode, target_tab_index)
-            
-            if not can_apply:
-                logger.warning(f"[FILTER MODE] Filter cannot be applied: {reason}")
-                # Show warning to user
-                from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.warning(
-                    self,
-                    "Filter Uygulanamıyor",
-                    f"<b>Filter uygulanamıyor!</b><br><br>{reason}"
-                )
-                return
-            
-            # ✅ FIX Problem #9: Concatenated mode warning
-            if mode == 'concatenated' and conditions:  # Only warn if applying filter, not clearing
-                from PyQt5.QtWidgets import QMessageBox
-                
-                # Check if there are existing limits or deviation settings
-                has_limits = False
-                has_deviation = False
-                for i in range(10):  # Check all possible graphs
-                    if self._get_graph_setting(i, 'limits', {}):
-                        has_limits = True
-                    if self._get_graph_setting(i, 'basic_deviation', {}):
-                        has_deviation = True
-                
-                if has_limits or has_deviation:
-                    warning_text = """
-<b>⚠️ Concatenated Display Mode Aktif!</b>
-<br><br>
-Range filter uygulandığında:
-<ul>
-<li>Filtre <b>TÜM sekmelerdeki TÜM grafiklere</b> uygulanacak (global etki)</li>"""
-                    
-                    if has_limits:
-                        warning_text += "<li>Mevcut <b>Static Limits kaldırılacak</b></li>"
-                    if has_deviation:
-                        warning_text += "<li>Mevcut <b>Basic Deviation ayarları kaldırılacak</b></li>"
-                    
-                    warning_text += """
-</ul>
-<br>
-Devam etmek istiyor musunuz?
-                    """
-                    
-                    reply = QMessageBox.question(
-                        self,
-                        "Concatenated Mode Uyarısı",
-                        warning_text,
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No
-                    )
-                    
-                    if reply == QMessageBox.No:
-                        logger.info("[FILTER MODE] User cancelled concatenated filter application")
-                        return
-                    
-                    # User confirmed, clear limits and deviation
-                    logger.info("[FILTER MODE] Clearing limits and deviation settings before concatenated filter")
-                    for i in range(10):
-                        self._save_graph_setting(i, 'limits', {})
-                        self._save_graph_setting(i, 'basic_deviation', {})
-                
-            container = self.graph_containers[target_tab_index]
-            
-            # VALIDATION: graph_index container'daki grafik sayısından fazla olmamalı
-            max_graphs = container.plot_manager.get_subplot_count()
-            if graph_index >= max_graphs:
-                logger.error(f"Invalid graph_index {graph_index} for container with {max_graphs} graphs. Using 0.")
-                graph_index = 0
-            
-            
-            # Get all signals data
-            all_signals = self.signal_processor.get_all_signals()
-            
-            # Check if this is a reset operation (empty conditions)
-            if not conditions:
-                logger.info("[FILTER CLEAR] Clearing filter (empty conditions received)")
-                
-                # Önceki filter mode'unu kontrol et (concatenated ise restore gerekli)
-                # CRITICAL: Read BEFORE clearing, because incoming filter_data has current mode!
-                # CRITICAL FIX: Use target_tab_index, not active_tab_index!
-                previous_filter = self.filter_manager.get_filter_state(target_tab_index, graph_index)
-                logger.info(f"[FILTER CLEAR] Previous filter state: {previous_filter}")
-                
-                # ✅ FIX: Check if concatenated mode is CURRENTLY active (not from incoming data)
-                # The FilterManager knows the truth about concatenated mode status
-                was_concatenated = self.filter_manager.is_concatenated_mode_active
-                logger.info(f"[FILTER CLEAR] Was concatenated mode active? {was_concatenated}")
-                
-                # Clear filter state (from TARGET tab!)
-                logger.info(f"[FILTER CLEAR] Removing filter for tab {target_tab_index}, graph {graph_index}")
-                self.filter_manager.remove_filter(target_tab_index, graph_index)
-                
-                # Verify concatenated mode was cleared
-                logger.info(f"[FILTER CLEAR] After removal - is_concatenated_mode_active: {self.filter_manager.is_concatenated_mode_active}")
-                
-                # Filtre durumunu widget container manager'dan da temizle
-                if hasattr(self, 'parent') and hasattr(self.parent, 'widget_container_manager'):
-                    self.parent.widget_container_manager.save_current_filter_state()
-                
-                # SADECE concatenated ise orijinal veriyi restore et
-                if was_concatenated and self.signal_processor:
-                    self.signal_processor.restore_original_data()
-                    logger.info("[FILTER CLEAR] Concatenated filter cleared, restoring original data")
-                
-                # Manuel grafik güncelleme (sonsuz döngü önlemek için)
-                all_signals = self.signal_processor.get_all_signals()
-                all_signal_names = sorted(list(all_signals.keys()))
-                
-                # ✅ FIX: If concatenated mode, restore ALL tabs
-                if was_concatenated:
-                    logger.info("[FILTER CLEAR] Concatenated mode - restoring ALL tabs")
-                    # Restore all tabs with original data
-                    for tab_idx, tab_container in enumerate(self.graph_containers):
-                        logger.info(f"[FILTER CLEAR] Restoring tab {tab_idx}")
-                        
-                        # Clear all signals in this tab
-                        tab_container.plot_manager.clear_all_signals()
-                        
-                        # Get signal mapping for this tab
-                        tab_mapping = self.graph_signal_mapping.get(tab_idx, {})
-                        
-                        # Redraw all signals in this tab with original data
-                        for g_idx, signal_names in tab_mapping.items():
-                            if g_idx < tab_container.plot_manager.get_subplot_count():
-                                for name in signal_names:
-                                    if name in all_signals:
-                                        signal_data = all_signals[name]
-                                        signal_index = all_signal_names.index(name)
-                                        color = self.theme_manager.get_signal_color(signal_index)
-                                        tab_container.plot_manager.add_signal(
-                                            name, 
-                                            signal_data['x_data'], 
-                                            signal_data['y_data'], 
-                                            plot_index=g_idx, 
-                                            pen=color
-                                        )
-                        
-                        # Apply limit lines to this tab
-                        plot_widgets = tab_container.plot_manager.get_plot_widgets()
-                        for g_idx, plot_widget in enumerate(plot_widgets):
-                            visible_signals = self.graph_signal_mapping.get(tab_idx, {}).get(g_idx, [])
-                            if self.graph_renderer:
-                                self.graph_renderer._apply_limit_lines(plot_widget, g_idx, visible_signals)
-                        
-                        # Auto-range all plots in this tab
-                        for plot_widget in tab_container.plot_manager.get_plot_widgets():
-                            plot_widget.enableAutoRange(axis='x', enable=True)
-                            plot_widget.enableAutoRange(axis='y', enable=True)
-                            plot_widget.autoRange()
-                            plot_widget.enableAutoRange(axis='x', enable=False)
-                            plot_widget.enableAutoRange(axis='y', enable=False)
-                else:
-                    # Segmented mode - only update target tab
-                    logger.info(f"[FILTER CLEAR] Segmented mode - restoring only target tab {target_tab_index}")
-                    
-                    # Tüm plot widget'ları TAMAMEN temizle (InfiniteLines vs. için)
-                    plot_widgets = container.get_plot_widgets()
-                    for plot_widget in plot_widgets:
-                        plot_widget.clear()  # Tüm item'ları temizle
-                    
-                    # Sadece TARGET container'daki sinyalleri yeniden çiz
-                    tab_mapping = self.graph_signal_mapping.get(target_tab_index, {})
-                    
-                    for g_idx, signal_names in tab_mapping.items():
-                        if g_idx < container.plot_manager.get_subplot_count():
-                            for name in signal_names:
-                                if name in all_signals:
-                                    signal_data = all_signals[name]
-                                    signal_index = all_signal_names.index(name)
-                                    color = self.theme_manager.get_signal_color(signal_index)
-                                    container.plot_manager.add_signal(
-                                        name, 
-                                        signal_data['x_data'], 
-                                        signal_data['y_data'], 
-                                        plot_index=g_idx, 
-                                        pen=color
-                                    )
-                    
-                    # Limit lines uygula
-                    self._apply_limit_lines_to_all_graphs()
-                    
-                    # ✅ FIX Problem #8: Auto-range all plots after filter clear
-                    logger.debug(f"[VIEW FIX] Auto-ranging all plots after filter clear")
-                    plot_widgets = container.get_plot_widgets()
-                    for plot_widget in plot_widgets:
-                        plot_widget.enableAutoRange(axis='x', enable=True)
-                        plot_widget.enableAutoRange(axis='y', enable=True)
-                        plot_widget.autoRange()
-                        plot_widget.enableAutoRange(axis='x', enable=False)
-                        plot_widget.enableAutoRange(axis='y', enable=False)
-                
-                return
-            
-            # Use filter manager to calculate segments in background thread
-            
-            # Show loading indicator
-            if hasattr(self, 'loading_manager'):
-                self.loading_manager.start_operation("filtering", "Calculating filter segments...")
-            
-            # Create callback for when calculation is done
-            def on_segments_calculated(time_segments):
-                try:
-                    
-                    # Hide loading indicator - check if widget still exists
-                    if hasattr(self, 'loading_manager') and self.loading_manager:
-                        self.loading_manager.finish_operation("filtering")
-                    
-                    # ✅ FIX: Handle debounce case (None = debounced, don't show error)
-                    if time_segments is None:
-                        logger.info("[FILTER] Calculation was debounced, returning silently")
-                        return
-                    
-                    if not time_segments:
-                        from PyQt5.QtWidgets import QMessageBox
-                        
-                        # Check if self is still valid before creating QMessageBox
-                        try:
-                            msg = QMessageBox(self)
-                            msg.setStyleSheet(self._get_message_box_style())
-                            msg.setIcon(QMessageBox.Warning)
-                            msg.setText("No time segments match the specified filter conditions.")
-                            msg.setWindowTitle("No Matches")
-                            msg.exec_()
-                        except RuntimeError:
-                            logger.warning("Widget was destroyed before showing message box")
-                        return
-                    
-                    # Continue with the rest of the filter application
-                    # Check if widget still exists
-                    if not hasattr(self, 'graph_renderer'):
-                        logger.warning("Widget destroyed before applying filter segments")
-                        return
-                    
-                    # ✅ SIMPLIFIED: Just apply the segments - filter_conditions no longer needed
-                    # graph_renderer now uses only time_segments which are already correctly computed
-                    self._apply_calculated_segments(container, graph_index, time_segments, mode, filter_data, target_tab_index)
-                    
-                except RuntimeError as e:
-                    logger.warning(f"Callback execution failed - widget may be deleted: {e}")
-                except Exception as e:
-                    logger.error(f"Error in filter callback: {e}")
-            
-            # Start threaded calculation with tab and graph indices
-            # CRITICAL FIX: Use target_tab_index, not active_tab_index!
-            self.filter_manager.calculate_filter_segments_threaded(
-                all_signals, 
-                conditions, 
-                on_segments_calculated,
-                tab_index=target_tab_index,
-                graph_index=graph_index
-            )
-            return  # Exit here, continuation happens in callback
-            
-        except RuntimeError as e:
-            logger.error(f"Runtime error in _apply_range_filter (widget may be deleted): {e}")
-            # Hide loading indicator if it was shown
-            if hasattr(self, 'loading_manager') and self.loading_manager:
-                try:
-                    self.loading_manager.finish_operation("filtering")
-                except:
-                    pass
-        except Exception as e:
-            logger.error(f"Error in _apply_range_filter: {e}")
-            # Hide loading indicator if it was shown
-            if hasattr(self, 'loading_manager') and self.loading_manager:
-                try:
-                    self.loading_manager.finish_operation("filtering")
-                except:
-                    pass
-    
-    def _apply_calculated_segments(self, container, graph_index, time_segments, mode, filter_data, target_tab_index):
-        """Apply calculated filter segments to the graph.
-        
-        Args:
-            container: GraphContainer for the target tab
-            graph_index: Index of the graph to apply filter to
-            time_segments: Calculated time segments
-            mode: Filter mode ('segmented' or 'concatenated')
-            filter_data: Filter configuration data
-            target_tab_index: Target tab index (CRITICAL for multi-tab isolation)
         """
+        Apply the range filter to all graphs, or clear it (empty conditions).
+
+        The filter always uses concatenated display: the time ranges where all
+        conditions hold are joined into one continuous timeline, the signal
+        processor's data is replaced with it and every graph in every tab is
+        redrawn. Segments are computed from the original file data, so a new
+        filter replaces the previous one instead of filtering its result.
+        """
+        conditions = filter_data.get('conditions', [])
+        logger.info(f"[FILTER] Range filter requested: {len(conditions)} condition(s)")
+
+        if not conditions:
+            if self.filter_manager.has_active_filters():
+                self.filter_manager.clear_filters()
+                self.signal_processor.restore_original_data()
+                self._save_filter_state_for_file_switch()
+                self._redraw_after_filter_change()
+                logger.info("[FILTER] Range filter cleared, original data restored")
+            return
+
+        if hasattr(self, 'loading_manager') and self.loading_manager:
+            self.loading_manager.start_operation("filtering", "Calculating filter segments...")
+
+        def on_segments_calculated(time_segments):
+            try:
+                if hasattr(self, 'loading_manager') and self.loading_manager:
+                    self.loading_manager.finish_operation("filtering")
+
+                if time_segments is None:
+                    return  # debounced
+
+                if not time_segments:
+                    # Keep whatever was shown before (previous filter or none)
+                    msg = QMessageBox(self)
+                    msg.setStyleSheet(self._get_message_box_style())
+                    msg.setIcon(QMessageBox.Warning)
+                    msg.setText("No time segments match the specified filter conditions.\n"
+                                "The filter was not applied.")
+                    msg.setWindowTitle("No Matches")
+                    msg.exec_()
+                    return
+
+                # Build the concatenated data from the original data
+                if self.filter_manager.has_active_filters():
+                    self.signal_processor.restore_original_data()
+                self.graph_renderer.graph_signal_mapping = self.graph_signal_mapping
+                self.graph_renderer.apply_concatenated_filter(None, time_segments)
+
+                self.filter_manager.set_global_filter(filter_data)
+                self._save_filter_state_for_file_switch()
+                self._redraw_after_filter_change()
+                logger.info(f"[FILTER] Range filter applied to all graphs ({len(time_segments)} segments)")
+
+            except RuntimeError as e:
+                logger.warning(f"Filter callback failed - widget may be deleted: {e}")
+            except Exception as e:
+                logger.error(f"Error applying range filter: {e}", exc_info=True)
+                msg = QMessageBox(self)
+                msg.setStyleSheet(self._get_message_box_style())
+                msg.setIcon(QMessageBox.Critical)
+                msg.setText(f"Error applying filter: {str(e)}")
+                msg.setWindowTitle("Filter Error")
+                msg.exec_()
+
         try:
-            # ✅ FIX: Use passed target_tab_index parameter instead of recalculating
-            # This ensures filter is applied to correct tab even if user switched tabs
-            logger.info(f"[FILTER ISOLATION] Applying filter to tab {target_tab_index}, graph {graph_index}, mode: {mode}")
-            
-            # Save filter state using filter manager (to TARGET tab!)
-            self.filter_manager.save_filter_state(target_tab_index, filter_data)
-            
-            # Filtre durumunu widget container manager'a da kaydet
-            # Bu sayede dosya değiştirme sırasında filtreler korunur
-            if hasattr(self, 'parent') and hasattr(self.parent, 'widget_container_manager'):
-                self.parent.widget_container_manager.save_current_filter_state()
-            
-            # Update graph renderer with current signal mapping
-            self.graph_renderer.graph_signal_mapping = self.graph_signal_mapping
-            
-            # Apply filtering based on mode using graph renderer
-            if mode == 'segmented':
-                # ✅ FIX: Pass filter_conditions for NumPy Y-value filtering
-                # C++ segments give time ranges, we need to filter Y values in those ranges
-                filter_conditions = filter_data.get('conditions', [])
-                self.graph_renderer.apply_segmented_filter(container, graph_index, time_segments, target_tab_index, filter_conditions)
-            else:  # concatenated
-                # ✅ FIX Concatenated Mode: Apply to ALL tabs, not just target tab!
-                # Concatenated mode değiştirir signal_processor'daki veriyi
-                self.graph_renderer.apply_concatenated_filter(container, time_segments)
-                
-                # Get filtered signals
-                all_signals = self.signal_processor.get_all_signals()
-                all_signal_names = sorted(list(all_signals.keys()))
-                
-                # CRITICAL: Apply concatenated filter to ALL TABS
-                logger.info(f"[CONCATENATED] Applying filter to ALL tabs (total: {len(self.graph_containers)})")
-                for tab_idx, tab_container in enumerate(self.graph_containers):
-                    logger.info(f"[CONCATENATED] Updating tab {tab_idx}")
-                    
-                    # Clear all signals in this tab
-                    tab_container.plot_manager.clear_all_signals()
-                    
-                    # Get signal mapping for this tab
-                    tab_mapping = self.graph_signal_mapping.get(tab_idx, {})
-                    
-                    # Redraw all signals in this tab with filtered data
-                    for g_idx, signal_names in tab_mapping.items():
-                        if g_idx < tab_container.plot_manager.get_subplot_count():
-                            for name in signal_names:
-                                if name in all_signals:
-                                    signal_data = all_signals[name]
-                                    signal_index = all_signal_names.index(name)
-                                    color = self.theme_manager.get_signal_color(signal_index)
-                                    tab_container.plot_manager.add_signal(
-                                        name, 
-                                        signal_data['x_data'], 
-                                        signal_data['y_data'], 
-                                        plot_index=g_idx, 
-                                        pen=color
-                                    )
-                    
-                    # Apply limit lines to this tab
-                    plot_widgets = tab_container.plot_manager.get_plot_widgets()
-                    for g_idx, plot_widget in enumerate(plot_widgets):
-                        visible_signals = self.graph_signal_mapping.get(tab_idx, {}).get(g_idx, [])
-                        if self.graph_renderer:
-                            self.graph_renderer._apply_limit_lines(plot_widget, g_idx, visible_signals)
-                    
-                    # Auto-range all plots in this tab
-                    for plot_widget in tab_container.plot_manager.get_plot_widgets():
-                        plot_widget.enableAutoRange(axis='x', enable=True)
-                        plot_widget.enableAutoRange(axis='y', enable=True)
-                        plot_widget.autoRange()
-                        plot_widget.enableAutoRange(axis='x', enable=False)
-                        plot_widget.enableAutoRange(axis='y', enable=False)
-                
-                logger.info(f"[CONCATENATED] Filter applied to ALL {len(self.graph_containers)} tabs")
-                
+            self.filter_manager.calculate_filter_segments_threaded(
+                self.signal_processor.get_all_signals(),
+                conditions,
+                on_segments_calculated,
+            )
         except Exception as e:
-            logger.error(f"Error applying range filter: {e}")
-            from PyQt5.QtWidgets import QMessageBox
-            msg = QMessageBox(self)
-            msg.setStyleSheet(self._get_message_box_style())
-            msg.setIcon(QMessageBox.Critical)
-            msg.setText(f"Error applying filter: {str(e)}")
-            msg.setWindowTitle("Filter Error")
-            msg.exec_()
-    
+            logger.error(f"Error starting range filter calculation: {e}", exc_info=True)
+            if hasattr(self, 'loading_manager') and self.loading_manager:
+                self.loading_manager.finish_operation("filtering")
+
+    def _save_filter_state_for_file_switch(self):
+        """Keep the widget container's copy of the filter state up to date."""
+        if hasattr(self, 'parent') and hasattr(self.parent, 'widget_container_manager'):
+            self.parent.widget_container_manager.save_current_filter_state()
+
+    def _redraw_after_filter_change(self):
+        """Redraw every tab after the filter replaced/restored the time axis."""
+        self._redraw_all_signals()
+        # The timeline changed (concatenated or original), so the previous
+        # zoom is meaningless: fit every plot to the new data
+        for container in self.graph_containers:
+            for plot_widget in container.plot_manager.get_plot_widgets():
+                plot_widget.enableAutoRange(axis='x', enable=True)
+                plot_widget.enableAutoRange(axis='y', enable=True)
+                plot_widget.autoRange()
+                plot_widget.enableAutoRange(axis='x', enable=False)
+                plot_widget.enableAutoRange(axis='y', enable=False)
+
     def _restore_filter_ui_state(self, saved_filters: dict):
         """
-        Kaydedilmiş filtre durumunu UI'da geri yükle.
-        Widget container manager tarafından çağrılır.
-        
-        Args:
-            saved_filters: Kaydedilmiş filtre durumu
+        Called by the widget container manager after restoring filter state.
+        Nothing to rebuild: the filter dialog reads the state when opened.
         """
-        try:
-            logger.info(f"Restoring filter UI state: {len(saved_filters)} saved filters")
-            
-            if not saved_filters:
-                logger.debug("No saved filters to restore")
-                return
-            
-            # Her tab için filtre durumunu geri yükle
-            for tab_index, filter_data in saved_filters.items():
-                try:
-                    # Filter panel'ı bul ve durumu geri yükle
-                    if hasattr(self, 'parameters_panel') and self.parameters_panel:
-                        # Parameters panel'daki filter panel'ları kontrol et
-                        for widget in self.parameters_panel.findChildren(QWidget):
-                            if hasattr(widget, 'graph_index') and hasattr(widget, 'set_range_filter_conditions'):
-                                # Bu widget'ın graph_index'i ile tab_index'i eşleştir
-                                widget_tab = getattr(widget, 'tab_index', None)
-                                if widget_tab == tab_index:
-                                    widget.set_range_filter_conditions(filter_data)
-                                    logger.debug(f"Restored filter UI for tab {tab_index}")
-                                    break
-                    
-                    logger.debug(f"Filter UI restored for tab {tab_index}")
-                except Exception as e:
-                    logger.warning(f"Error restoring filter UI for tab {tab_index}: {e}")
-            
-            logger.info("Filter UI state restoration completed")
-            
-        except Exception as e:
-            logger.error(f"Error in _restore_filter_ui_state: {e}")
-    
-    def _refresh_graph_display(self, container):
-        """Refresh graph display to show all data (remove filters)."""
-        try:
-            
-            # Clear any existing filters on the container
-            container.plot_manager.clear_all_signals()
-            
-            # Get current tab index and redraw signals for this container
-            active_tab_index = self.tab_widget.currentIndex()
-            if active_tab_index >= 0:
-                # Get signal mapping for this tab
-                tab_mapping = self.graph_signal_mapping.get(active_tab_index, {})
-                all_signals = self.signal_processor.get_all_signals()
-                all_signal_names = list(all_signals.keys())
-                
-                # Redraw all signals for this container
-                for graph_index, signal_names in tab_mapping.items():
-                    if graph_index < container.plot_manager.get_subplot_count():
-                        for name in signal_names:
-                            if name in all_signals:
-                                signal_data = all_signals[name]
-                                signal_index = all_signal_names.index(name)
-                                color = self.theme_manager.get_signal_color(signal_index)
-                                
-                                container.plot_manager.add_signal(
-                                    name, 
-                                    signal_data['x_data'], 
-                                    signal_data['y_data'], 
-                                    plot_index=graph_index, 
-                                    pen=color
-                                )
-                
-                
-        except Exception as e:
-            logger.error(f"Error refreshing graph display: {e}")
-    
+        if hasattr(self, 'toolbar_manager') and self.toolbar_manager:
+            self.toolbar_manager.set_filter_active(self.filter_manager.has_active_filters())
+        if hasattr(self, 'bitmask_panel_manager') and self.bitmask_panel_manager:
+            self.bitmask_panel_manager.set_filter_active(self.filter_manager.has_active_filters())
+
     def _get_message_box_style(self) -> str:
         """Gets a consistent stylesheet for QMessageBox to match the space theme."""
         return """
@@ -2253,349 +1734,6 @@ Devam etmek istiyor musunuz?
             }
         """
                                
-    def _calculate_filter_segments(self, all_signals: dict, conditions: list) -> list:
-        """Calculate time segments where all conditions are satisfied."""
-        
-        if not conditions:
-            return []
-            
-        # Get time axis from first signal
-        first_signal_name = next(iter(all_signals.keys()))
-        first_signal = all_signals[first_signal_name]
-        time_data = first_signal.get('x_data', [])
-        
-        
-        if len(time_data) == 0:
-            return []
-            
-        import numpy as np
-        time_array = np.array(time_data)
-        
-        # Initialize mask with all True values
-        combined_mask = np.ones(len(time_array), dtype=bool)
-        
-        # Apply each condition (AND logic between conditions)
-        for i, condition in enumerate(conditions):
-            param_name = condition['parameter']
-            ranges = condition['ranges']
-            
-            
-            if param_name not in all_signals:
-                continue
-                
-            signal_data = all_signals[param_name]
-            y_data = np.array(signal_data.get('y_data', []))
-            
-            
-            if len(y_data) != len(time_array):
-                continue
-                
-            # Create mask for this parameter's conditions
-            param_mask = np.ones(len(time_array), dtype=bool)
-            
-            # Apply range conditions (AND logic within parameter)
-            for j, range_condition in enumerate(ranges):
-                operator = range_condition['operator']
-                value = range_condition['value']
-                
-                
-                if operator == '>':
-                    range_mask = y_data > value
-                elif operator == '>=':
-                    range_mask = y_data >= value
-                elif operator == '<':
-                    range_mask = y_data < value
-                elif operator == '<=':
-                    range_mask = y_data <= value
-                else:
-                    continue
-                
-                matching_points = np.sum(range_mask)
-                    
-                param_mask = param_mask & range_mask
-                
-            # Combine with overall mask (AND logic between parameters)
-            param_matching = np.sum(param_mask)
-            combined_mask = combined_mask & param_mask
-            
-        # Find continuous segments where mask is True
-        total_matching = np.sum(combined_mask)
-        
-        segments = []
-        in_segment = False
-        segment_start = None
-        
-        for i, mask_value in enumerate(combined_mask):
-            if mask_value and not in_segment:
-                # Start of new segment
-                segment_start = time_array[i]
-                in_segment = True
-            elif not mask_value and in_segment:
-                # End of current segment
-                segment_end = time_array[i-1]
-                segments.append((segment_start, segment_end))
-                in_segment = False
-                
-        # Handle case where segment extends to end of data
-        if in_segment:
-            segment_end = time_array[-1]
-            segments.append((segment_start, segment_end))
-            
-        return segments
-        
-    def _apply_segmented_filter(self, container, graph_index: int, time_segments: list):
-        """Apply segmented display filter - show matching segments with gaps."""
-        
-        # Get signals for this graph
-        active_tab_index = self.tab_widget.currentIndex()
-        visible_signals = self.graph_signal_mapping.get(active_tab_index, {}).get(graph_index, [])
-        
-        
-        if not visible_signals:
-            return
-            
-        # Clear existing plots for this graph
-        plot_widgets = container.plot_manager.get_plot_widgets()
-        
-        if graph_index < len(plot_widgets):
-            plot_widget = plot_widgets[graph_index]
-            plot_widget.clear()
-        else:
-            return
-            
-        # Plot each signal with segmented data
-        all_signals = self.signal_processor.get_all_signals()
-        
-        for signal_name in visible_signals:
-            
-            if signal_name not in all_signals:
-                continue
-                
-            signal_data = all_signals[signal_name]
-            full_x_data = np.array(signal_data.get('x_data', []))
-            full_y_data = np.array(signal_data.get('y_data', []))
-            
-            
-            # Create segmented data
-            segments_plotted = 0
-            for i, (segment_start, segment_end) in enumerate(time_segments):
-                # Find indices for this segment
-                mask = (full_x_data >= segment_start) & (full_x_data <= segment_end)
-                segment_x = full_x_data[mask]
-                segment_y = full_y_data[mask]
-                
-                if len(segment_x) > 0:
-                    # Plot this segment
-                    color = self._get_signal_color(signal_name)
-                    # Only show legend for the first segment of each signal
-                    legend_name = signal_name if segments_plotted == 0 else None
-                    plot_widget.plot(segment_x, segment_y, pen=color, name=legend_name)
-                    segments_plotted += 1
-                    
-                    
-        logger.info(f"Segmented filter applied successfully to graph {graph_index}")
-        
-        # Show success message
-        from PyQt5.QtWidgets import QMessageBox
-        msg = QMessageBox(self)
-        msg.setStyleSheet(self._get_message_box_style())
-        msg.setIcon(QMessageBox.Information)
-        msg.setText(f"Segmented filter applied to Graph {graph_index + 1}.\n\n"
-            f"Showing {len(time_segments)} time segments with gaps.\n\n"
-            "Time synchronization with other graphs is maintained.")
-        msg.setWindowTitle("Filter Applied")
-        msg.exec_()
-        
-    def _apply_concatenated_filter(self, container, graph_index: int, time_segments: list):
-        """Apply concatenated display filter - join matching segments continuously."""
-        logger.info(f"Applying concatenated filter to graph {graph_index} with {len(time_segments)} segments")
-        
-        # Get signals for this graph
-        active_tab_index = self.tab_widget.currentIndex()
-        visible_signals = self.graph_signal_mapping.get(active_tab_index, {}).get(graph_index, [])
-        
-        if not visible_signals:
-            logger.warning(f"No visible signals for graph {graph_index}")
-            return
-            
-        # Clear existing plots for this graph
-        plot_widgets = container.plot_manager.get_plot_widgets()
-        if graph_index < len(plot_widgets):
-            plot_widget = plot_widgets[graph_index]
-            plot_widget.clear()
-        else:
-            logger.warning(f"Graph index {graph_index} out of range, available plots: {len(plot_widgets)}")
-            return
-            
-        # Plot each signal with concatenated data
-        all_signals = self.signal_processor.get_all_signals()
-        
-        for signal_name in visible_signals:
-            if signal_name not in all_signals:
-                continue
-                
-            signal_data = all_signals[signal_name]
-            full_x_data = np.array(signal_data.get('x_data', []))
-            full_y_data = np.array(signal_data.get('y_data', []))
-            
-            # Concatenate all segments
-            concatenated_x = []
-            concatenated_y = []
-            new_time_offset = 0.0
-            
-            for i, (segment_start, segment_end) in enumerate(time_segments):
-                # Find indices for this segment
-                mask = (full_x_data >= segment_start) & (full_x_data <= segment_end)
-                segment_x = full_x_data[mask]
-                segment_y = full_y_data[mask]
-                
-                if len(segment_x) > 0:
-                    # Adjust time axis for concatenation
-                    if i == 0:
-                        adjusted_x = segment_x - segment_x[0]  # Start from 0
-                    else:
-                        adjusted_x = segment_x - segment_x[0] + new_time_offset
-                        
-                    concatenated_x.extend(adjusted_x)
-                    concatenated_y.extend(segment_y)
-                    
-                    # Update offset for next segment
-                    if len(adjusted_x) > 0:
-                        new_time_offset = adjusted_x[-1] + (adjusted_x[-1] - adjusted_x[0]) * 0.01  # Small gap
-                        
-            if concatenated_x:
-                # Plot concatenated data
-                color = self._get_signal_color(signal_name)
-                plot_widget.plot(concatenated_x, concatenated_y, pen=color, name=signal_name)
-                
-        logger.info(f"Concatenated filter applied successfully to graph {graph_index}")
-
-    def _apply_global_concatenated_filter(self, container, time_segments: list):
-        """Apply concatenated display filter globally to all graphs in the tab."""
-        logger.info(f"Applying global concatenated filter with {len(time_segments)} segments to all graphs")
-        
-        # Get all signals from signal processor
-        all_signals = self.signal_processor.get_all_signals()
-        
-        if not all_signals:
-            logger.warning("No signals available for global filter")
-            return
-            
-        # Create concatenated time axis and signal data for all signals
-        concatenated_signals = self._create_concatenated_signals(all_signals, time_segments)
-        
-        if not concatenated_signals:
-            logger.warning("Failed to create concatenated signals")
-            return
-            
-        # Clear all plots in the container
-        plot_widgets = container.plot_manager.get_plot_widgets()
-        for plot_widget in plot_widgets:
-            plot_widget.clear()
-            
-        # Get current tab's graph signal mapping
-        active_tab_index = self.tab_widget.currentIndex()
-        tab_mapping = self.graph_signal_mapping.get(active_tab_index, {})
-        
-        # Apply concatenated data to all graphs
-        for graph_index, signal_names in tab_mapping.items():
-            if graph_index < len(plot_widgets):
-                plot_widget = plot_widgets[graph_index]
-                
-                for signal_name in signal_names:
-                    if signal_name in concatenated_signals:
-                        concat_data = concatenated_signals[signal_name]
-                        color = self._get_signal_color(signal_name)
-                        plot_widget.plot(
-                            concat_data['x_data'], 
-                            concat_data['y_data'], 
-                            pen=color, 
-                            name=signal_name
-                        )
-        
-        # Update signal processor with concatenated data (for statistics etc.)
-        self._update_signal_processor_with_concatenated_data(concatenated_signals)
-        
-        # Show success message
-        from PyQt5.QtWidgets import QMessageBox
-        msg = QMessageBox(self)
-        msg.setStyleSheet(self._get_message_box_style())
-        msg.setIcon(QMessageBox.Information)
-        msg.setText(f"Concatenated filter applied to all graphs in this tab.\n\n"
-            f"Time axis shows {len(time_segments)} segments continuously.\n\n"
-            f"All {len(concatenated_signals)} signals are now synchronized to the filtered time domain.")
-        msg.setWindowTitle("Global Filter Applied")
-        msg.exec_()
-        
-        logger.info(f"Global concatenated filter applied successfully to {len(concatenated_signals)} signals")
-
-    def _create_concatenated_signals(self, all_signals: dict, time_segments: list) -> dict:
-        """Create concatenated signal data for all signals."""
-        concatenated_signals = {}
-        
-        for signal_name, signal_data in all_signals.items():
-            full_x_data = np.array(signal_data.get('x_data', []))
-            full_y_data = np.array(signal_data.get('y_data', []))
-            
-            # Concatenate all segments for this signal
-            concatenated_x = []
-            concatenated_y = []
-            new_time_offset = 0.0
-            
-            for i, (segment_start, segment_end) in enumerate(time_segments):
-                # Find indices for this segment
-                mask = (full_x_data >= segment_start) & (full_x_data <= segment_end)
-                segment_x = full_x_data[mask]
-                segment_y = full_y_data[mask]
-                
-                if len(segment_x) > 0:
-                    # Adjust time axis for concatenation
-                    if i == 0:
-                        adjusted_x = segment_x - segment_x[0]  # Start from 0
-                    else:
-                        adjusted_x = segment_x - segment_x[0] + new_time_offset
-                        
-                    concatenated_x.extend(adjusted_x)
-                    concatenated_y.extend(segment_y)
-                    
-                    # Update offset for next segment
-                    if len(adjusted_x) > 0:
-                        new_time_offset = adjusted_x[-1] + (adjusted_x[-1] - adjusted_x[0]) * 0.01  # Small gap
-                        
-            if concatenated_x:
-                concatenated_signals[signal_name] = {
-                    'x_data': np.array(concatenated_x),
-                    'y_data': np.array(concatenated_y),
-                    'original_x': full_x_data,
-                    'original_y': full_y_data,
-                    'metadata': signal_data.get('metadata', {})
-                }
-                
-        logger.info(f"Created concatenated data for {len(concatenated_signals)} signals")
-        return concatenated_signals
-
-    def _update_signal_processor_with_concatenated_data(self, concatenated_signals: dict):
-        """Update signal processor with concatenated data for statistics calculations."""
-        try:
-            # Clear existing data
-            self.signal_processor.clear_all_data()
-            
-            # Add concatenated signals
-            for signal_name, concat_data in concatenated_signals.items():
-                self.signal_processor.add_signal(
-                    signal_name,
-                    concat_data['x_data'],
-                    concat_data['y_data'],
-                    concat_data.get('metadata', {})
-                )
-                
-            logger.info(f"Updated signal processor with {len(concatenated_signals)} concatenated signals")
-            
-            # DON'T update statistics here - wait for cursor movement for performance
-            
-        except Exception as e:
-            logger.error(f"Error updating signal processor with concatenated data: {e}")
-        
     def _get_signal_color(self, signal_name: str) -> str:
         """Get color for a signal (simplified version)."""
         # Simple color cycling - in real implementation, use proper color management
@@ -2720,6 +1858,8 @@ Devam etmek istiyor musunuz?
         if hasattr(self.toolbar_manager, 'bitmask_toggled'):
             self.toolbar_manager.bitmask_toggled.connect(self._on_bitmask_toggled)
 
+        self.toolbar_manager.filters_requested.connect(self._on_filters_requested)
+
         # Settings panel connections
         self.settings_panel_manager.theme_changed.connect(self.set_theme)
 
@@ -2839,43 +1979,45 @@ Devam etmek istiyor musunuz?
             logger.warning("No active container found for graph reordering")
             return
         
-        # Reorder graphs in PlotManager
-        active_container.plot_manager.reorder_graphs(from_index, to_index)
-        
-        # Update graph_signal_mapping to reflect new order
-        if tab_index in self.graph_signal_mapping:
-            # Swap the signal lists
-            signals_from = self.graph_signal_mapping[tab_index].get(from_index, []).copy()
-            signals_to = self.graph_signal_mapping[tab_index].get(to_index, []).copy()
-            
-            # Update mapping
-            self.graph_signal_mapping[tab_index][from_index] = signals_to
-            self.graph_signal_mapping[tab_index][to_index] = signals_from
-            
-            # Update cursor manager if it exists
-            if hasattr(self, 'cursor_manager') and self.cursor_manager:
-                # Cursor manager needs to be updated with new plot widget order
-                # The plot widgets are already reordered in PlotManager
-                plot_widgets = active_container.plot_manager.get_plot_widgets()
-                # Reinitialize cursor manager with new order
-                from src.managers.cursor_manager import CursorManager
-                old_cursor_manager = self.cursor_manager
-                self.cursor_manager = CursorManager(plot_widgets)
-                # Copy cursor positions if available
-                if hasattr(old_cursor_manager, 'dual_cursors_1') and hasattr(old_cursor_manager, 'dual_cursors_2'):
-                    # Cursor positions will be maintained by the plot widgets themselves
-                    pass
-                old_cursor_manager.deleteLater()
-            
-            # Mark data as modified
-            self.is_data_modified = True
-            
-            # Recreate statistics panel to reflect new order
-            self._recreate_statistics_panel()
-            
-            logger.info(f"Graphs reordered successfully: Graph {from_index + 1} <-> Graph {to_index + 1}")
-        else:
-            logger.warning(f"Tab {tab_index} not found in graph signal mapping")
+        count = active_container.plot_manager.get_subplot_count()
+        if from_index == to_index or not (0 <= from_index < count and 0 <= to_index < count):
+            return
+
+        # The plot widgets stay where they are; their CONTENTS are swapped.
+        # Everything per graph (callbacks, axis labels, cursors, statistics,
+        # legends) is addressed by graph index, so swapping the per-index
+        # state and redrawing keeps all of it consistent. Moving the widgets
+        # instead left those index-bound parts pointing at the wrong graph.
+        def swap(store: dict):
+            if store is None:
+                return
+            a, b = store.pop(from_index, None), store.pop(to_index, None)
+            if b is not None:
+                store[from_index] = b
+            if a is not None:
+                store[to_index] = a
+
+        swap(self.graph_signal_mapping.setdefault(tab_index, {}))
+        swap(self.graph_settings.get(tab_index))
+
+        swap(active_container.plot_manager.original_data_ranges)
+
+        self.is_data_modified = True
+
+        cursor_positions = (self.cursor_manager.get_cursor_positions()
+                            if self.cursor_manager else {})
+
+        # Redraws signals, legends, limit lines and filters, restores the
+        # cursors and rebuilds the statistics panel
+        self._redraw_all_signals()
+
+        # The rebuilt statistics panel is empty until the next cursor move;
+        # the values existed before the swap, so recompute them once the
+        # redraw re-enables statistics (~350 ms, see _restore_cursors_after_redraw)
+        if cursor_positions:
+            QTimer.singleShot(450, lambda: self._refresh_statistics(cursor_positions))
+
+        logger.info(f"Graphs reordered successfully: Graph {from_index + 1} <-> Graph {to_index + 1}")
 
     def _on_visible_columns_changed(self, visible_columns: set):
         """Handle changes to visible statistics columns."""
@@ -3224,83 +2366,3 @@ Devam etmek istiyor musunuz?
     def _on_remove_tab_clicked(self):
         """Handle the click event for removing the current tab."""
         self._remove_tab()
-
-    def _on_limits_applied_from_dialog(self, graph_index, limits_config):
-        """
-        Handle limits applied signal from advanced settings dialog.
-        This is called when Apply or OK button is clicked.
-        """
-        logger.info(f"[LIMITS] Received limits_applied signal for graph {graph_index}")
-        logger.debug(f"[LIMITS] Limits config: {limits_config}")
-        
-        try:
-            # Save the settings for persistence
-            self._save_graph_setting(graph_index, 'limits', limits_config)
-            logger.info(f"[LIMITS] Saved limits to settings for graph {graph_index}")
-            
-            # Apply to graph renderer (store config)
-            if self.graph_renderer:
-                self.graph_renderer.set_static_limits(graph_index, limits_config)
-                logger.info(f"[LIMITS] Set static limits in renderer for graph {graph_index}: {len(limits_config)} signals")
-            
-            # CRITICAL: Use target tab from dialog, NOT current active tab!
-            target_tab_index = getattr(self, '_dialog_target_tab', self.tab_widget.currentIndex())
-            if target_tab_index < 0 or target_tab_index >= len(self.graph_containers):
-                logger.warning(f"[LIMITS] Invalid tab index: {target_tab_index}")
-                return
-                
-            container = self.graph_containers[target_tab_index]
-            plot_widgets = container.plot_manager.get_plot_widgets()
-            
-            # Apply limit lines to the specific graph
-            if graph_index < len(plot_widgets):
-                plot_widget = plot_widgets[graph_index]
-                
-                # Get visible signals for this graph (from TARGET tab!)
-                visible_signals = self.graph_signal_mapping.get(target_tab_index, {}).get(graph_index, [])
-                logger.info(f"[LIMITS] Visible signals for graph {graph_index}: {visible_signals}")
-                
-                # CRITICAL FIX: Clear old limit lines FIRST
-                if self.graph_renderer:
-                    self.graph_renderer._clear_limit_lines(plot_widget, graph_index)
-                    logger.info(f"[LIMITS] Cleared old limit lines for graph {graph_index}")
-                
-                # Apply NEW limit lines (if any)
-                if self.graph_renderer and visible_signals and limits_config:
-                    self.graph_renderer._apply_limit_lines(plot_widget, graph_index, visible_signals)
-                    logger.info(f"[LIMITS] Applied {len(limits_config)} new limit lines to graph {graph_index}")
-                elif not limits_config:
-                    logger.info(f"[LIMITS] No limits to apply (limits cleared) for graph {graph_index}")
-                else:
-                    logger.warning(f"[LIMITS] Cannot apply limit lines - renderer: {self.graph_renderer is not None}, signals: {len(visible_signals)}")
-            else:
-                logger.warning(f"[LIMITS] Graph index {graph_index} out of range (total plots: {len(plot_widgets)})")
-            
-            logger.info(f"[LIMITS] Successfully applied and saved limits for graph {graph_index}")
-            
-        except RuntimeError as e:
-            # C++ module error - show user-friendly message
-            logger.error(f"[LIMITS] RuntimeError: {e}")
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self,
-                "Static Limits Error",
-                f"<b>Static Limits could not be applied!</b><br><br>{str(e)}"
-            )
-        except Exception as e:
-            logger.error(f"[LIMITS] Error applying static limits: {e}", exc_info=True)
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.critical(
-                self,
-                "Static Limits Error",
-                f"<b>Unexpected error:</b><br><br>{str(e)}"
-            )
-    
-    def _apply_static_limits(self, graph_index, limits_config):
-        """
-        Legacy method - redirects to new handler.
-        Apply static limits from the advanced settings dialog to the graph renderer.
-        """
-        self._on_limits_applied_from_dialog(graph_index, limits_config)
-
-

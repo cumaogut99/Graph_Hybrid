@@ -22,16 +22,33 @@ from typing import Optional, Dict, Any, List
 import polars as pl
 
 from src.data.data_validator import DataValidator
+from src.data.csv_format_detector import detect_csv_format
+from src.data.excel_to_csv import is_excel_file, list_sheets, excel_to_temp_csv, remove_temp_csv
 from src.utils.error_handler import ErrorHandler
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QSplitter, QTableWidget, QTableWidgetItem,
     QGroupBox, QLabel, QComboBox, QSpinBox, QPushButton, QTextEdit, QCheckBox,
-    QProgressBar, QMessageBox, QFrame, QScrollArea, QGridLayout, QLineEdit, QWidget
+    QProgressBar, QMessageBox, QFrame, QScrollArea, QGridLayout, QLineEdit, QWidget,
+    QApplication
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal as Signal, QTimer
 from PyQt5.QtGui import QFont, QPalette, QColor
 
 logger = logging.getLogger(__name__)
+
+# "Zaman Formatı" choices -> setting passed to the converter
+TIME_FORMAT_CHOICES = {
+    'Otomatik - Kendisi seçsin': 'Otomatik',
+    '%Y-%m-%d %H:%M:%S (2024-01-15 14:30:45)': '%Y-%m-%d %H:%M:%S',
+    '%d/%m/%Y %H:%M:%S (15/01/2024 14:30:45)': '%d/%m/%Y %H:%M:%S',
+    '%m/%d/%Y %H:%M:%S (01/15/2024 14:30:45)': '%m/%d/%Y %H:%M:%S',
+    '%m/%d/%Y %I:%M:%S %p (01/15/2024 02:30:45 PM)': '%m/%d/%Y %I:%M:%S %p',
+    '%d.%m.%Y %H:%M:%S (15.01.2024 14:30:45)': '%d.%m.%Y %H:%M:%S',
+    '%Y-%m-%d (2024-01-15)': '%Y-%m-%d',
+    '%d/%m/%Y (15/01/2024)': '%d/%m/%Y',
+    'Unix Timestamp (1704110400)': 'Unix Timestamp',
+    'Saniyelik Index (0.0, 0.1, 0.2...)': 'Saniyelik Index',
+}
 
 class DataPreviewThread(QThread):
     """Veri önizlemesi için background thread."""
@@ -39,14 +56,15 @@ class DataPreviewThread(QThread):
     preview_ready = Signal(object, dict)  # DataFrame ve metadata
     error_occurred = Signal(str)
     
-    def __init__(self, file_path: str, encoding: str = 'latin-1', delimiter: str = ',', 
-                 header_row: int = 0, start_row: int = 0):
+    def __init__(self, file_path: str, encoding: str = 'latin-1', delimiter: str = ',',
+                 header_row: int = 0, start_row: int = 0, decimal_comma: bool = False):
         super().__init__()
         self.file_path = file_path
         self.encoding = encoding
         self.delimiter = delimiter
         self.header_row = header_row
         self.start_row = start_row
+        self.decimal_comma = decimal_comma
         
         # Calculate skip_rows for Polars
         # Polars'ın skip_rows parametresi: dosyanın başından kaç satır atlanacak
@@ -78,14 +96,6 @@ class DataPreviewThread(QThread):
             if file_ext == '.csv':
                 # Always use manual line reading to properly handle header_row and start_row
                 df = self._read_csv_with_manual_skip()
-            elif file_ext in ['.xlsx', '.xls']:
-                # Excel dosyası
-                df = pl.read_excel(
-                    self.file_path,
-                    has_header=self.has_header,
-                    skip_rows=self.skip_rows,
-                    n_rows=100
-                )
             elif file_ext == '.parquet':
                 # Parquet dosyası
                 df = pl.read_parquet(self.file_path)
@@ -202,7 +212,10 @@ class DataPreviewThread(QThread):
             
             # Join and parse through StringIO
             cleaned_content = '\n'.join(selected_lines)
-            
+
+            # truncate_ragged_lines: while the user is still adjusting the
+            # header/start rows, metadata lines may have extra fields; show a
+            # preview for the chosen settings instead of failing.
             df = pl.read_csv(
                 io.StringIO(cleaned_content),
                 separator=self.delimiter,
@@ -211,26 +224,22 @@ class DataPreviewThread(QThread):
                 low_memory=False,
                 infer_schema_length=100,
                 ignore_errors=True,
+                truncate_ragged_lines=True,
+                decimal_comma=self.decimal_comma,
                 try_parse_dates=False
             )
-            
+            # Blank lines come through as all-null rows
+            if df.width > 0:
+                df = df.filter(~pl.all_horizontal(pl.all().is_null()))
+
             logger.info(f"Preview with manual skip (header={self.header_row}, start={self.start_row}): {df.shape}")
             return df
-            
+
         except Exception as e:
+            # No fallback that re-reads from line 0: it would show a preview
+            # that ignores the chosen header/start rows
             logger.error(f"Manual CSV read failed: {e}")
-            # Fallback to simple read
-            return pl.read_csv(
-                self.file_path,
-                encoding=self.encoding,
-                separator=self.delimiter,
-                n_rows=100,
-                low_memory=False,
-                quote_char='"',
-                infer_schema_length=100,
-                ignore_errors=True,
-                try_parse_dates=False
-            )
+            raise
 
     def _read_ni_preview_tdm(self):
         """Load first 100 rows from a TDM/TDX file pair."""
@@ -288,11 +297,24 @@ class DataImportDialog(QDialog):
 
         ext = os.path.splitext(file_path)[1].lower()
         self._is_binary_format = ext in ('.tdm', '.tdx', '.tdms')
+        self._is_excel = is_excel_file(file_path)
+        # Excel sayfaları geçici CSV'ye çevrilip metin dosyası gibi işlenir
+        self._is_text_format = self._is_excel or ext not in ('.tdm', '.tdx', '.tdms', '.mpai', '.parquet')
         self._file_format = ext.lstrip('.')  # e.g. 'tdm', 'tdx', 'tdms', 'csv'
+
+        # Önizleme/algılama için okunan dosya (Excel'de seçili sayfanın CSV'si)
+        self._preview_path = file_path
+        self._excel_csv_path = None
+        self._excel_csv_handed_over = False
 
         self._setup_ui()
         self._setup_connections()
         self._configure_for_file_type()
+        if self._is_excel:
+            self._export_excel_sheet()
+        if self._is_text_format and self._preview_path:
+            # Açıklama satırlı export'lar için header/veri satırını baştan algıla
+            self._apply_detected_format(show_message=False)
         self._load_initial_preview()
         
     def _setup_ui(self):
@@ -424,7 +446,7 @@ class DataImportDialog(QDialog):
     def _create_format_settings(self):
         """Dosya format ayarları grubu."""
         group = QGroupBox("🔧 Dosya Format Ayarları")
-        group.setMaximumHeight(120)  # Kompakt yükseklik
+        group.setMaximumHeight(150)  # Kompakt yükseklik
         layout = QGridLayout(group)
         layout.setSpacing(4)  # Kompakt spacing
         
@@ -445,12 +467,32 @@ class DataImportDialog(QDialog):
         ])
         self.delimiter_combo.setEditable(True)
         layout.addWidget(self.delimiter_combo, 1, 1)
-        
+
+        # Ondalık ayırıcı virgül mü (0,25)
+        self.decimal_comma_checkbox = QCheckBox("Ondalık ayırıcı virgül (0,25)")
+        self.decimal_comma_checkbox.setToolTip(
+            "Sayılar 0,25 gibi virgülle yazılmışsa işaretleyin.\n"
+            "Ayırıcı virgül ise kullanılamaz."
+        )
+        layout.addWidget(self.decimal_comma_checkbox, 2, 0, 1, 2)
+
         # Otomatik algıla butonu
         self.auto_detect_btn = QPushButton("🔍 Otomatik Algıla")
-        self.auto_detect_btn.setToolTip("Dosya formatını otomatik olarak algıla")
-        layout.addWidget(self.auto_detect_btn, 2, 0, 1, 2)
-        
+        self.auto_detect_btn.setToolTip(
+            "Ayırıcı, header satırı, veri başlangıç satırı ve ondalık ayırıcıyı algıla"
+        )
+        layout.addWidget(self.auto_detect_btn, 3, 0, 1, 2)
+
+        # Excel sayfa seçimi (sadece Excel dosyalarında görünür)
+        self.sheet_label = QLabel("Sayfa:")
+        self.sheet_combo = QComboBox()
+        self.sheet_combo.setToolTip("İçe aktarılacak Excel sayfası")
+        layout.addWidget(self.sheet_label, 4, 0)
+        layout.addWidget(self.sheet_combo, 4, 1)
+        self.sheet_label.setVisible(False)
+        self.sheet_combo.setVisible(False)
+        self.format_group = group
+
         return group
         
     def _create_column_settings(self):
@@ -528,15 +570,11 @@ class DataImportDialog(QDialog):
         # Zaman formatı
         layout.addWidget(QLabel("Zaman Formatı:"), 2, 0)
         self.time_format_combo = QComboBox()
-        self.time_format_combo.addItems([
-            'Otomatik - Kendisi seçsin',
-            '%Y-%m-%d %H:%M:%S (2024-01-15 14:30:45)',
-            '%d/%m/%Y %H:%M:%S (15/01/2024 14:30:45)',
-            '%Y-%m-%d (2024-01-15)',
-            '%d/%m/%Y (15/01/2024)',
-            'Unix Timestamp (1704110400)',
-            'Saniyelik Index (0.0, 0.1, 0.2...)'
-        ])
+        self.time_format_combo.addItems(list(TIME_FORMAT_CHOICES))
+        self.time_format_combo.setToolTip(
+            "Otomatik: sayılar, tarih+saat ve tarihsiz saatler tanınır\n"
+            "(14:30:45.123, 9:05:00 PM, 14/30/45, 05:30.5, 1h2m3s).\n"
+            "Gün/ay sırası belirsiz tarihlerde (01/02/2024) formatı seçin.")
         layout.addWidget(self.time_format_combo, 2, 1)
         
         # Ayırıcı çizgi - yeni zaman kolonu için
@@ -598,9 +636,12 @@ class DataImportDialog(QDialog):
             self.sampling_freq_label, self.sampling_freq_spinbox,
             self.start_time_label, self.start_time_combo,
             self.custom_start_label, self.custom_start_time,
-            self.time_unit_label, self.time_unit_combo,
             self.new_time_column_label, self.new_time_column_name
         ]
+        # The unit converts an existing numeric time column (e.g. ms -> s);
+        # a generated column is always in seconds
+        self.time_unit_label.setText("Zaman Kolonu Birimi:")
+        self.time_unit_combo.setToolTip("Sayısal zaman kolonunun birimi; saniyeye çevrilir")
         
         # Başlangıçta gizle (varsayılan mod "Mevcut Kolonu Kullan")
         for widget in self.new_time_widgets:
@@ -609,7 +650,10 @@ class DataImportDialog(QDialog):
         return group
         
     def _configure_for_file_type(self):
-        """Disable text-format controls when a binary NI format is loaded."""
+        """Adjust format controls for Excel and binary NI formats."""
+        if self._is_excel:
+            self._configure_for_excel()
+            return
         if not self._is_binary_format:
             return
 
@@ -623,6 +667,7 @@ class DataImportDialog(QDialog):
         # Encoding / delimiter / auto-detect — not applicable
         self.encoding_combo.setEnabled(False)
         self.delimiter_combo.setEnabled(False)
+        self.decimal_comma_checkbox.setEnabled(False)
         self.auto_detect_btn.setEnabled(False)
 
         # Header & row settings — binary formats carry their own metadata
@@ -635,6 +680,76 @@ class DataImportDialog(QDialog):
         for w in (self.encoding_combo, self.delimiter_combo,
                   self.header_spinbox, self.start_row_spinbox):
             w.setToolTip(f"{fmt} ikili formatı için geçerli değil")
+
+    def _configure_for_excel(self):
+        """Excel: sayfa seçimi göster; encoding/ayırıcı CSV dönüşümünde sabit."""
+        self.setWindowTitle(
+            f"Veri Import - {os.path.basename(self.file_path)} [{self._file_format.upper()}]"
+        )
+        # Sayfa geçici CSV'ye UTF-8, virgül ayırıcı ve nokta ondalıkla yazılır
+        for w in (self.encoding_combo, self.delimiter_combo, self.decimal_comma_checkbox):
+            w.blockSignals(True)
+        self.encoding_combo.setCurrentText('utf-8')
+        self.delimiter_combo.setCurrentText(', (Virgül)')
+        self.decimal_comma_checkbox.setChecked(False)
+        for w in (self.encoding_combo, self.delimiter_combo, self.decimal_comma_checkbox):
+            w.blockSignals(False)
+            w.setEnabled(False)
+            w.setToolTip("Excel dosyalarında otomatik ayarlanır")
+
+        try:
+            sheets = list_sheets(self.file_path)
+        except Exception as e:
+            logger.error(f"Excel sayfaları okunamadı: {e}")
+            QMessageBox.warning(self, "Excel Hatası", f"Excel dosyası okunamadı:\n\n{e}")
+            sheets = []
+        self.sheet_combo.blockSignals(True)
+        self.sheet_combo.addItems(sheets)
+        self.sheet_combo.blockSignals(False)
+        self.sheet_label.setVisible(True)
+        self.sheet_combo.setVisible(True)
+        self.sheet_combo.setEnabled(len(sheets) > 1)
+        self.format_group.setMaximumHeight(180)
+        self.sheet_combo.currentTextChanged.connect(self._on_sheet_changed)
+
+    def _export_excel_sheet(self) -> bool:
+        """Seçili Excel sayfasını geçici CSV'ye yaz; önizleme bu CSV'den okunur."""
+        remove_temp_csv(self._excel_csv_path)
+        self._excel_csv_path = None
+        self._preview_path = None
+        sheet = self.sheet_combo.currentText()
+        if not sheet:
+            return False
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            self._excel_csv_path = excel_to_temp_csv(self.file_path, sheet)
+            self._preview_path = self._excel_csv_path
+            return True
+        except Exception as e:
+            logger.error(f"Excel sayfası okunamadı ({sheet}): {e}")
+            QMessageBox.warning(self, "Excel Hatası", f"'{sheet}' sayfası okunamadı:\n\n{e}")
+            return False
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def _on_sheet_changed(self, _sheet: str):
+        """Excel sayfası değişince yeniden dönüştür, algıla ve önizle."""
+        if self._export_excel_sheet():
+            self._apply_detected_format(show_message=False)
+            self._refresh_preview()
+
+    def _discard_excel_csv(self):
+        """Dialog iptal edilirse geçici CSV'yi sil (kabul edilirse loader siler)."""
+        if not self._excel_csv_handed_over:
+            remove_temp_csv(self._excel_csv_path)
+            self._excel_csv_path = None
+
+    def accept(self):
+        if self._is_excel and not self._excel_csv_path:
+            QMessageBox.warning(self, "Excel Hatası", "İçe aktarılacak bir sayfa okunamadı.")
+            return
+        self._excel_csv_handed_over = True
+        super().accept()
 
     def _create_button_panel(self):
         """Alt buton paneli oluştur - kompakt."""
@@ -673,7 +788,8 @@ class DataImportDialog(QDialog):
         # Ayar değişikliklerinde otomatik yenileme
         self.encoding_combo.currentTextChanged.connect(self._on_settings_changed)
         self.delimiter_combo.currentTextChanged.connect(self._on_settings_changed)
-        self.header_spinbox.valueChanged.connect(self._on_settings_changed)
+        self.decimal_comma_checkbox.toggled.connect(self._on_settings_changed)
+        self.header_spinbox.valueChanged.connect(self._on_header_row_changed)
         self.start_row_spinbox.valueChanged.connect(self._on_settings_changed)  # start_row
         self.has_header_checkbox.toggled.connect(self._on_header_checkbox_changed)
         
@@ -725,7 +841,8 @@ class DataImportDialog(QDialog):
             
         header_row = self.header_spinbox.value() if self.has_header_checkbox.isChecked() else -1
         start_row = self.start_row_spinbox.value()
-        
+        decimal_comma = self.decimal_comma_checkbox.isChecked() and delimiter != ','
+
         # Progress bar göster
         self.progress_bar.setVisible(True)
         self.progress_label.setVisible(True)
@@ -733,8 +850,11 @@ class DataImportDialog(QDialog):
         self.progress_label.setText("Veri önizlemesi yükleniyor...")
         
         # Thread başlat
+        if not self._preview_path:
+            return  # Excel sayfası okunamadı; hata zaten gösterildi
+        
         self.preview_thread = DataPreviewThread(
-            self.file_path, encoding, delimiter, header_row, start_row
+            self._preview_path, encoding, delimiter, header_row, start_row, decimal_comma
         )
         self.preview_thread.preview_ready.connect(self._on_preview_ready)
         self.preview_thread.error_occurred.connect(self._on_preview_error)
@@ -870,6 +990,13 @@ class DataImportDialog(QDialog):
         self._refresh_timer.timeout.connect(self._refresh_preview)
         self._refresh_timer.start(1000)  # 1 saniye gecikme
         
+    def _on_header_row_changed(self, header_row: int):
+        """Header satırı değişince veri başlangıcı header'dan önce kalmasın."""
+        if header_row >= 0 and self.start_row_spinbox.value() <= header_row:
+            # start_row_spinbox.valueChanged zaten _on_settings_changed'i tetikler
+            self.start_row_spinbox.setValue(header_row + 1)
+        self._on_settings_changed()
+
     def _on_header_checkbox_changed(self, checked):
         """Header checkbox değiştiğinde."""
         self.header_spinbox.setEnabled(checked)
@@ -904,6 +1031,8 @@ class DataImportDialog(QDialog):
         # Yeni zaman kolonu widget'larını göster/gizle
         for widget in self.new_time_widgets:
             widget.setVisible(not is_existing_mode)
+        self.time_unit_label.setVisible(is_existing_mode)
+        self.time_unit_combo.setVisible(is_existing_mode)
         
         logger.debug(f"Zaman kolonu modu değişti: {mode_text}")
         
@@ -924,47 +1053,75 @@ class DataImportDialog(QDialog):
             self.sampling_freq_spinbox.setToolTip(tooltip)
             
     def _auto_detect_format(self):
-        """Dosya formatını otomatik algıla."""
+        """Dosya formatını otomatik algıla (buton)."""
+        if self._apply_detected_format(show_message=True):
+            self._refresh_preview()
+
+    def _apply_detected_format(self, show_message: bool) -> bool:
+        """
+        Ayırıcı, header satırı, veri başlangıç satırı ve ondalık ayırıcıyı
+        algılayıp arayüze uygula.
+
+        Returns:
+            Algılama başarılıysa True
+        """
+        delimiter_map = {
+            ',': ', (Virgül)',
+            ';': '; (Noktalı virgül)',
+            '\t': '\\t (Tab)',
+            '|': '| (Pipe)',
+            ' ': ' (Boşluk)'
+        }
         try:
-            # Dosyanın ilk birkaç satırını oku
-            with open(self.file_path, 'rb') as f:
-                sample = f.read(1024).decode('utf-8', errors='ignore')
-                
-            # Delimiter algılama
-            delimiters = [',', ';', '\t', '|', ' ']
-            delimiter_counts = {}
-            
-            for delim in delimiters:
-                count = sample.count(delim)
-                delimiter_counts[delim] = count
-                
-            # En çok bulunan delimiter'ı seç
-            best_delimiter = max(delimiter_counts, key=delimiter_counts.get)
-            
-            # Delimiter combo'yu güncelle
-            delimiter_map = {
-                ',': ', (Virgül)',
-                ';': '; (Noktalı virgül)',
-                '\t': '\\t (Tab)',
-                '|': '| (Pipe)',
-                ' ': ' (Boşluk)'
-            }
-            
-            if best_delimiter in delimiter_map:
-                self.delimiter_combo.setCurrentText(delimiter_map[best_delimiter])
-                
+            fmt = detect_csv_format(self._preview_path, encoding=self.encoding_combo.currentText())
+        except Exception as e:
+            logger.warning(f"Format algılama başarısız: {e}")
+            if show_message:
+                QMessageBox.warning(self, "Algılama Hatası",
+                                    f"Otomatik format algılama başarısız:\n{str(e)}")
+            return False
+
+        if fmt is None:
+            if show_message:
+                QMessageBox.warning(
+                    self, "Otomatik Algılama",
+                    "Dosyada tutarlı bir veri bloğu bulunamadı.\n"
+                    "Lütfen ayarları elle girin."
+                )
+            return False
+
+        # Tek seferde uygula: her değişiklik ayrı önizleme tetiklemesin
+        widgets = (self.delimiter_combo, self.decimal_comma_checkbox, self.has_header_checkbox,
+                   self.header_spinbox, self.start_row_spinbox)
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self.delimiter_combo.setCurrentText(delimiter_map.get(fmt.delimiter, fmt.delimiter))
+            self.decimal_comma_checkbox.setChecked(fmt.decimal_comma)
+            has_header = fmt.header_row is not None
+            self.has_header_checkbox.setChecked(has_header)
+            self.header_spinbox.setEnabled(has_header)
+            self.header_spinbox.setValue(fmt.header_row if has_header else -1)
+            self.start_row_spinbox.setValue(fmt.start_row)
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        if hasattr(self, '_refresh_timer'):
+            self._refresh_timer.stop()
+
+        if show_message:
+            delim_name = delimiter_map.get(fmt.delimiter, repr(fmt.delimiter))
+            header_text = (f"{fmt.header_row}. satır" if fmt.header_row is not None else "yok")
             QMessageBox.information(
                 self,
                 "Otomatik Algılama",
-                f"Algılanan ayırıcı: '{best_delimiter}'\nÖnizleme otomatik olarak güncellenecek."
+                f"Ayırıcı: {delim_name}\n"
+                f"Header satırı: {header_text}\n"
+                f"Veri başlangıç satırı: {fmt.start_row}\n"
+                f"Ondalık ayırıcı: {'virgül' if fmt.decimal_comma else 'nokta'}\n"
+                f"Kolon sayısı: {fmt.column_count}"
             )
-            
-        except Exception as e:
-            QMessageBox.warning(
-                self,
-                "Algılama Hatası",
-                f"Otomatik format algılama başarısız:\n{str(e)}"
-            )
+        return True
             
     def _apply_theme(self):
         """Yumuşak uzay teması - göze rahat."""
@@ -1185,23 +1342,14 @@ class DataImportDialog(QDialog):
         is_custom_time = (time_mode == "Yeni Zaman Kolonu Oluştur")
         
         # Zaman formatını parse et (kullanıcı dostu formattan gerçek formata)
-        time_format_display = self.time_format_combo.currentText()
-        time_format_map = {
-            'Otomatik - Kendisi seçsin': 'Otomatik',
-            '%Y-%m-%d %H:%M:%S (2024-01-15 14:30:45)': '%Y-%m-%d %H:%M:%S',
-            '%d/%m/%Y %H:%M:%S (15/01/2024 14:30:45)': '%d/%m/%Y %H:%M:%S',
-            '%Y-%m-%d (2024-01-15)': '%Y-%m-%d',
-            '%d/%m/%Y (15/01/2024)': '%d/%m/%Y',
-            'Unix Timestamp (1704110400)': 'Unix Timestamp',
-            'Saniyelik Index (0.0, 0.1, 0.2...)': 'Saniyelik Index'
-        }
-        time_format = time_format_map.get(time_format_display, 'Otomatik')
+        time_format = TIME_FORMAT_CHOICES.get(self.time_format_combo.currentText(), 'Otomatik')
         
         settings = {
             'file_path':    self.file_path,
             'file_format':  self._file_format,
             'encoding':     self.encoding_combo.currentText(),
             'delimiter':    delimiter,
+            'decimal_comma': self.decimal_comma_checkbox.isChecked() and delimiter != ',',
             'header_row':   (self.header_spinbox.value()
                              if (self.has_header_checkbox.isChecked()
                                  and not self._is_binary_format)
@@ -1211,6 +1359,11 @@ class DataImportDialog(QDialog):
             'time_mode':    time_mode,
             'create_custom_time': is_custom_time,
         }
+        
+        if self._is_excel:
+            settings['excel_sheet'] = self.sheet_combo.currentText()
+            # Önizlemede oluşturulan CSV: loader tekrar dönüştürmez, işi bitince siler
+            settings['_excel_csv_path'] = self._excel_csv_path
         
         if is_custom_time:
             # Yeni zaman kolonu ayarları
@@ -1246,6 +1399,7 @@ class DataImportDialog(QDialog):
         except RuntimeError as e:
             # Thread already deleted on C++ side
             logger.debug(f"Preview thread already deleted in closeEvent: {e}")
+        self._discard_excel_csv()
         super().closeEvent(event)
 
     def reject(self):
@@ -1260,6 +1414,7 @@ class DataImportDialog(QDialog):
         except RuntimeError as e:
             # Thread already deleted on C++ side
             logger.debug(f"Preview thread already deleted in reject: {e}")
+        self._discard_excel_csv()
         super().reject()
 
 def test_dialog():

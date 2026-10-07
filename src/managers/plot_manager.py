@@ -37,7 +37,6 @@ class PlotManager(QObject):
     # Signals
     plot_clicked = Signal(int, float, float)  # plot_index, x, y
     range_selected = Signal(float, float)  # start, end
-    settings_requested = Signal(int)
     
     def __init__(self, parent_widget: "TimeGraphWidget"):
         super().__init__()
@@ -758,80 +757,6 @@ class PlotManager(QObject):
         """Returns the current number of subplots."""
         return self.subplot_count
     
-    def reorder_graphs(self, from_index: int, to_index: int):
-        """
-        Reorder graphs by swapping positions.
-        
-        Args:
-            from_index: Current index of the graph to move
-            to_index: Target index where the graph should be moved
-        """
-        if not (0 <= from_index < self.subplot_count and 0 <= to_index < self.subplot_count):
-            logger.warning(f"Invalid indices for reordering: from={from_index}, to={to_index}, count={self.subplot_count}")
-            return
-        
-        if from_index == to_index:
-            return
-        
-        logger.info(f"Reordering graphs: {from_index} -> {to_index}")
-        
-        # Get the layout from plot_container
-        plot_layout = self.plot_container.layout()
-        if not plot_layout:
-            logger.error("Plot container has no layout")
-            return
-        
-        # Swap widgets in the list
-        self.plot_widgets[from_index], self.plot_widgets[to_index] = \
-            self.plot_widgets[to_index], self.plot_widgets[from_index]
-        
-        # Remove widgets from layout
-        widget_from = plot_layout.itemAt(from_index).widget()
-        widget_to = plot_layout.itemAt(to_index).widget()
-        
-        plot_layout.removeWidget(widget_from)
-        plot_layout.removeWidget(widget_to)
-        
-        # Re-insert widgets in swapped positions with equal stretch factor (1)
-        # This ensures all graphs maintain equal heights
-        if from_index < to_index:
-            plot_layout.insertWidget(from_index, widget_to, 1)
-            plot_layout.insertWidget(to_index, widget_from, 1)
-        else:
-            plot_layout.insertWidget(to_index, widget_from, 1)
-            plot_layout.insertWidget(from_index, widget_to, 1)
-        
-        # Update X-axis linking: only the last plot should show X-axis labels
-        for i, plot_widget in enumerate(self.plot_widgets):
-            if i < len(self.plot_widgets) - 1:
-                plot_widget.getAxis('bottom').setStyle(showValues=False)
-            else:
-                plot_widget.getAxis('bottom').setStyle(showValues=True)
-            
-            # Re-link X-axes
-            if i > 0:
-                plot_widget.setXLink(self.plot_widgets[0])
-        
-        # Update current_signals dictionary keys to reflect new positions
-        # Format: "signal_name_plot_index"
-        signals_to_update = {}
-        for key, plot_item in list(self.current_signals.items()):
-            if key.endswith(f"_{from_index}"):
-                # This signal belongs to the moved graph
-                new_key = key.rsplit('_', 1)[0] + f"_{to_index}"
-                signals_to_update[new_key] = plot_item
-            elif key.endswith(f"_{to_index}"):
-                # This signal belongs to the target graph
-                new_key = key.rsplit('_', 1)[0] + f"_{from_index}"
-                signals_to_update[new_key] = plot_item
-            else:
-                # Keep other signals as is
-                signals_to_update[key] = plot_item
-        
-        self.current_signals = signals_to_update
-        
-        logger.info(f"Graphs reordered successfully: {from_index} <-> {to_index}")
-    
     def enable_datetime_axis(self, enable=True):
         """Enable datetime formatting for all plot x-axes."""
         self.datetime_axis_enabled = enable
@@ -874,62 +799,32 @@ class PlotManager(QObject):
         # Clear any existing signals first
         self.current_signals.clear()
         
-        # Get the signal mapping from parent to determine which signals go to which plots
-        signal_mapping = {}
-        
-        # ✅ FIX: PlotManager.parent is GraphContainer, not TimeGraphWidget!
-        # We need to access TimeGraphWidget via parent.main_widget
-        main_widget = None
-        if hasattr(self.parent, 'main_widget'):
-            main_widget = self.parent.main_widget
-        else:
-            logger.error("CRITICAL: GraphContainer does not have main_widget reference!")
+        # The tab's mapping says which signals go to which plot. A signal can
+        # be in several plots, so walk the mapping (not a signal -> plot map,
+        # which kept only the last plot of such a signal).
+        main_widget = getattr(self.parent, 'main_widget', None)
+        if main_widget is None or not hasattr(main_widget, 'graph_signal_mapping'):
+            logger.error("CRITICAL: cannot reach the graph signal mapping to restore signals")
             return
-        
-        if hasattr(main_widget, 'graph_signal_mapping'):
-            # ✅ FIX: Get tab index from GraphContainer instead of main_widget
-            current_tab = 0
-            if hasattr(self.parent, 'tab_index'):
-                current_tab = self.parent.tab_index
-            else:
-                logger.error("CRITICAL: GraphContainer does not have tab_index attribute!")
-            
-            # Get signal mapping for current tab
-            tab_mapping = main_widget.graph_signal_mapping.get(current_tab, {})
-            
-            # Build reverse mapping: signal_name -> plot_index
-            for plot_index, signals in tab_mapping.items():
-                for signal_name in signals:
-                    signal_mapping[signal_name] = plot_index
-        else:
-            logger.error("CRITICAL: TimeGraphWidget does not have graph_signal_mapping attribute!")
-        
-        # Restore signals based on mapping
-        signal_names = list(signal_data.keys())
-        restored_count = 0
-        skipped_count = 0
-        
-        for name in signal_names:
-            data = signal_data[name]
-            
-            # Only restore signals that have explicit mapping
-            if name in signal_mapping:
-                # Use saved mapping
-                plot_index = signal_mapping[name]
-                
-                # ✅ FIX: Grafik sayısı artırıldığında sinyalleri GERİ GETİR
-                # Eğer plot_index artık mevcut grafik sayısına sığıyorsa, çiz
-                if plot_index < self.subplot_count:
-                    # Grafik mevcut, sinyali çiz
-                    try:
-                        self.add_signal(name, data['x'], data['y'], plot_index, pen=data['pen'])
-                        restored_count += 1
-                    except Exception as e:
-                        logger.error(f"Failed to restore signal '{name}' to plot {plot_index}: {e}")
-                else:
-                    # Grafik henüz yok, sinyali atlayıp mapping'de sakla
-                    skipped_count += 1
-        
+        current_tab = getattr(self.parent, 'tab_index', 0)
+        tab_mapping = main_widget.graph_signal_mapping.get(current_tab, {})
+
+        for plot_index, names in tab_mapping.items():
+            # Plots beyond the new count keep their mapping but are not drawn
+            if plot_index >= self.subplot_count:
+                continue
+            for name in names:
+                data = signal_data.get(name)
+                if data is None:
+                    continue
+                try:
+                    self.add_signal(name, data['x'], data['y'], plot_index, pen=data['pen'])
+                except Exception as e:
+                    logger.error(f"Failed to restore signal '{name}' to plot {plot_index}: {e}")
+
+        # New plots start at Y = [0, 1]; X is restored by set_subplot_count
+        self.fit_y_to_data()
+
         # ❌ REMOVED: reset_view() was causing X-range expansion when changing graph count
         # The X-range is now explicitly restored in set_subplot_count after this function
         # if restored_count > 0:
@@ -962,11 +857,6 @@ class PlotManager(QObject):
                 child.widget().setParent(None)
         
         # Buttons removed - graph settings now accessible via statistics panel titles
-    
-    def _open_graph_settings(self, index: int):
-        """Open settings dialog for a specific graph."""
-        logger.info(f"Requesting settings for graph {index}")
-        self.settings_requested.emit(index)
     
     def get_plot_panel(self) -> QWidget:
         """Get the plot panel widget."""
@@ -1162,10 +1052,9 @@ class PlotManager(QObject):
                     del self.signal_colors[key]
     
     def clear_all_signals(self):
-        """Clear all signals from all plots while preserving tooltips and deviation lines."""
+        """Clear all signals from all plots while preserving tooltips."""
         # Store tooltip items before clearing
         tooltip_backup = {}
-        deviation_backup = {}
         
         for i, plot_widget in enumerate(self.plot_widgets):
             # Backup tooltips
@@ -1177,21 +1066,6 @@ class PlotManager(QObject):
                 except:
                     pass
             
-            # Backup deviation lines and other non-signal items
-            deviation_backup[plot_widget] = []
-            for item in plot_widget.listDataItems():
-                # Check if this is a deviation line by looking at its pen color and width
-                if hasattr(item, 'opts') and 'pen' in item.opts:
-                    pen = item.opts['pen']
-                    if hasattr(pen, 'color') and hasattr(pen, 'width'):
-                        # Red lines with width >= 3 are likely deviation lines
-                        if (pen.color().name() in ['#ff0000', '#FF0000'] and pen.width() >= 3) or \
-                           (hasattr(item, 'name') and item.name() and 'deviation' in item.name().lower()):
-                            deviation_backup[plot_widget].append(item)
-                            try:
-                                plot_widget.removeItem(item)
-                            except:
-                                pass
         
         # Clear all plot content
         for plot_widget in self.plot_widgets:
@@ -1200,27 +1074,18 @@ class PlotManager(QObject):
         # Restore tooltips
         for plot_widget, tooltip_item in tooltip_backup.items():
             try:
-                plot_widget.addItem(tooltip_item)
+                plot_widget.addItem(tooltip_item, ignoreBounds=True)
                 tooltip_item.hide()  # Keep hidden until mouse moves
             except Exception as e:
                 logger.debug(f"Failed to restore tooltip: {e}")
                 # Re-create tooltip if restoration failed
                 self._setup_tooltip_for_plot(plot_widget, self.tooltips_enabled)
         
-        # Restore deviation lines
-        for plot_widget, deviation_items in deviation_backup.items():
-            for item in deviation_items:
-                try:
-                    plot_widget.addItem(item)
-                    logger.debug(f"Restored deviation line: {getattr(item, 'name', 'unnamed')}")
-                except Exception as e:
-                    logger.debug(f"Failed to restore deviation line: {e}")
-        
         self.current_signals.clear()
         self.signal_colors.clear()  # Clear color info as well
         self.original_data_ranges.clear()  # Clear stored original ranges
         
-        logger.debug("Cleared all signals while preserving tooltips and deviation lines")
+        logger.debug("Cleared all signals while preserving tooltips")
     
     def _custom_auto_range_for_plot(self, plot_index, *args, **kwargs):
         """Custom autoRange that uses original data ranges for better view reset."""
@@ -1244,6 +1109,12 @@ class PlotManager(QObject):
             except Exception as e:
                 logger.warning(f"Failed to use custom autoRange for plot {plot_index}: {e}")
         
+        # No signal in this plot: leave the view alone. Its X axis is linked
+        # to the other plots of the tab, and without data the only items are
+        # the cursors, so pyqtgraph's autoRange would zoom X onto them.
+        if not self.has_data(plot_index):
+            return
+
         # Fallback to original autoRange
         try:
             plot_widget = self.plot_widgets[plot_index]
@@ -1256,6 +1127,35 @@ class PlotManager(QObject):
         except Exception as e:
             logger.warning(f"Fallback autoRange also failed for plot {plot_index}: {e}")
     
+    def has_data(self, plot_index: int = None) -> bool:
+        """True if the plot (or, with None, any plot) shows at least one signal."""
+        if plot_index is None:
+            return bool(self.original_data_ranges)
+        if plot_index in self.original_data_ranges:
+            return True
+        if 0 <= plot_index < len(self.plot_widgets):
+            return bool(self.plot_widgets[plot_index].getPlotItem().listDataItems())
+        return False
+
+    def fit_x_to_data(self):
+        """Fit the (linked) X axis to the data of all plots, 5% padding."""
+        if not self.original_data_ranges or not self.plot_widgets:
+            return
+        x_min = min(r['x_min'] for r in self.original_data_ranges.values())
+        x_max = max(r['x_max'] for r in self.original_data_ranges.values())
+        padding = (x_max - x_min) * 0.05 or 0.5
+        self.plot_widgets[0].setXRange(x_min - padding, x_max + padding, padding=0)
+
+    def fit_y_to_data(self):
+        """Fit each plot's Y axis to its own data; empty plots are left alone."""
+        for idx, plot_widget in enumerate(self.plot_widgets):
+            ranges = self.original_data_ranges.get(idx)
+            if not ranges:
+                continue
+            y_min, y_max = ranges['y_min'], ranges['y_max']
+            padding = (y_max - y_min) * 0.05 or 0.5
+            plot_widget.setYRange(y_min - padding, y_max + padding, padding=0)
+
     def reset_view(self):
         """Reset the plot view to show all data including limit lines using original data ranges."""
         for idx, plot_widget in enumerate(self.plot_widgets):
@@ -1278,7 +1178,7 @@ class PlotManager(QObject):
                 except Exception as e:
                     logger.warning(f"Failed to use original range for plot {idx}, falling back to autoRange: {e}")
                     plot_widget.autoRange()
-            else:
+            elif self.has_data(idx):
                 # No original range stored, use autoRange (for non-downsampled data)
                 plot_widget.autoRange()
                 

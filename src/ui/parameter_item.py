@@ -40,25 +40,23 @@ class ParameterItem(QFrame):
         
         # Layout
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(6)
         
         # Icon
         icon_label = QLabel("📊")
-        icon_label.setFont(QFont("Segoe UI Emoji", 12))
+        icon_label.setStyleSheet("font-size: 11px;")
         layout.addWidget(icon_label)
         
         # Parameter name
         name_label = QLabel(self.parameter_name)
-        name_label.setFont(QFont("Segoe UI", 10))
-        name_label.setStyleSheet("color: #e6f3ff; font-weight: 500;")
+        name_label.setStyleSheet("color: #e6f3ff; font-size: 11px; font-weight: 500;")
         layout.addWidget(name_label, 1)
         
         # Formula hint if available
         if self.parameter_formula:
             formula_label = QLabel(f"({self.parameter_formula})")
-            formula_label.setFont(QFont("Segoe UI", 8))
-            formula_label.setStyleSheet("color: #a0c0e0; font-style: italic;")
+            formula_label.setStyleSheet("color: #a0c0e0; font-size: 10px; font-style: italic;")
             layout.addWidget(formula_label)
         
         # Styling
@@ -78,7 +76,7 @@ class ParameterItem(QFrame):
         """)
         
         # Set minimum size
-        self.setMinimumHeight(36)
+        self.setMinimumHeight(26)
         
         # Tooltip
         tooltip_text = f"{self.parameter_name}"

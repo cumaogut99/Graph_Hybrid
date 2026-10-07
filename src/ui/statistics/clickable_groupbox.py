@@ -20,7 +20,8 @@ class ClickableGroupBox(QGroupBox):
     def __init__(self, title: str, graph_index: int, parent=None):
         super().__init__(title, parent)
         self.graph_index = graph_index
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.OpenHandCursor)  # title is a drag handle for reordering
+        self.setToolTip("Drag onto another graph to swap them")
         self.drag_start_position = None
         self.has_dragged = False  # Track if drag operation started
         self.setAcceptDrops(True)

@@ -105,6 +105,8 @@ try:
     from src.managers.widget_container_manager import WidgetContainerManager
     # Project file support (.mpai)
     from src.managers.project_file_manager import ProjectFileManager
+    # The toolbar doubles as the title bar
+    from src.ui.frameless_window import FramelessWindowMixin
 except ImportError as e:
     print(f"Import hatası: {e}")
     print("Lütfen tüm gerekli modüllerin mevcut olduğundan emin olun.")
@@ -167,7 +169,7 @@ class DataSaver(QObject):
             self.df.write_csv(self.file_path)
 
 
-class TimeGraphApp(QMainWindow):
+class TimeGraphApp(FramelessWindowMixin, QMainWindow):
     """Ana uygulama penceresi."""
     
     def __init__(self):
@@ -217,7 +219,14 @@ class TimeGraphApp(QMainWindow):
     def _setup_ui(self):
         """Kullanıcı arayüzünü kurulum."""
         self.setWindowTitle("Time Graph - Veri Analizi ve Görselleştirme")
-        self.setMinimumSize(1200, 800)
+        # Never larger than the screen (e.g. 1280x800 at 200% scaling)
+        available = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() else None
+        if available is not None:
+            self.setMinimumSize(min(1200, available.width()), min(800, available.height()))
+        else:
+            self.setMinimumSize(1200, 800)
+        # Native title bar removed: the toolbar is the title bar (Windows)
+        self._init_frameless()
         
         # Pencereyi ekrana sığacak şekilde boyutlandır (High DPI için uyarlanmış)
         screen = QApplication.primaryScreen()
@@ -570,6 +579,11 @@ class TimeGraphApp(QMainWindow):
                     if hasattr(widget, 'statistics_panel'):
                         widget.statistics_panel.set_datetime_axis(False)
             
+            # Metin değerler 0'a çevrildiyse kullanıcıya söyle (grafik çizildikten sonra)
+            non_numeric = getattr(self.load_worker, 'non_numeric_report', None)
+            if non_numeric and self.data_ops:
+                QTimer.singleShot(300, lambda: self.data_ops.show_non_numeric_warning(filename, non_numeric))
+
             # Başarılı yükleme
             self.current_file_path = file_path
             self.is_data_modified = False
@@ -872,9 +886,11 @@ class TimeGraphApp(QMainWindow):
         if not file_data:
             return
         
-        # Switch to this file's widget
-        self.widget_container_manager.switch_to_file_widget(file_index)
-        
+        # Make this file active (tab, file index and widget together):
+        # save_project_dialog reads the active widget AND the active file's
+        # metadata, so switching only the widget would mix two files
+        self.file_manager.file_tab_widget.setCurrentIndex(file_index)
+
         # Trigger save dialog
         if self.project_ops:
             # After successful save, mark as saved and close
@@ -882,8 +898,8 @@ class TimeGraphApp(QMainWindow):
             if success:
                 # Mark as saved
                 file_data['is_project_saved'] = True
-                # Now close the tab (temp cleanup will happen automatically)
-                self.file_manager.close_file(file_index)
+                # Now close the tab and delete its temp MPAI cache
+                self.file_manager.close_file_and_cleanup(file_index)
         else:
             logger.error("ProjectOperations module not initialized")
     
@@ -1022,15 +1038,6 @@ class TimeGraphApp(QMainWindow):
                                 logger.info(f"- Processing thread for file {file_index} hala çalışıyor")
                         except RuntimeError:
                             pass  # Thread already deleted
-                        
-                    if hasattr(widget, 'graph_renderer') and widget.graph_renderer:
-                        try:
-                            deviation_threads = [t for t in widget.graph_renderer.deviation_threads.values() if t and t.isRunning()]
-                        except (RuntimeError, AttributeError):
-                            deviation_threads = []
-                        qthread_count += len(deviation_threads)
-                        if deviation_threads:
-                            logger.info(f"- {len(deviation_threads)} deviation thread for file {file_index} hala çalışıyor")
         if hasattr(self, 'status_bar_manager') and self.status_bar_manager:
             if hasattr(self.status_bar_manager, 'monitor_thread') and self.status_bar_manager.monitor_thread:
                 try:

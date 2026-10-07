@@ -342,7 +342,8 @@ class CursorManager(QObject):
                 hoverPen=pg.mkPen(color=color, alpha=100, width=10), # Wider, semi-transparent hover area
                 movable=True
             )
-            plot_widget.addItem(cursor)
+            # ignoreBounds: a cursor is not data, autoRange must not zoom to it
+            plot_widget.addItem(cursor, ignoreBounds=True)
             cursor_list.append(cursor)
             
             # Connect movement signal for EACH cursor
@@ -392,18 +393,6 @@ class CursorManager(QObject):
             cursor.blockSignals(False)
         
         self._emit_cursor_positions()
-
-    def get_cursor_positions(self) -> Dict[str, float]:
-        """Get current cursor positions."""
-        positions = {}
-        
-        if self.dual_cursors_1:
-            positions['cursor1'] = self.dual_cursors_1[0].value()
-            
-        if self.dual_cursors_2:
-            positions['cursor2'] = self.dual_cursors_2[0].value()
-            
-        return positions
 
     def get_range(self) -> Optional[Tuple[float, float]]:
         """Get current range selection."""

@@ -110,28 +110,6 @@ class FeatureStabilityTracker(QObject if PYQT_AVAILABLE else object):
     def _register_builtin_features(self):
         """Built-in özellik testlerini kaydet."""
         
-        # Static Limits özelliği
-        self.feature_tests['static_limits'] = FeatureTest(
-            feature_name='static_limits',
-            feature_type=FeatureType.UI_COMPONENT,
-            test_function=self._test_static_limits,
-            expected_behavior='Static limits panel should create and configure limits',
-            dependencies=['static_limits_panel', 'PyQt5'],
-            critical=True,
-            auto_fix_function=self._fix_static_limits
-        )
-        
-        # Deviation özelliği
-        self.feature_tests['deviation_analysis'] = FeatureTest(
-            feature_name='deviation_analysis',
-            feature_type=FeatureType.CALCULATION,
-            test_function=self._test_deviation_analysis,
-            expected_behavior='Deviation analysis should calculate trends and fluctuations',
-            dependencies=['basic_deviation_panel', 'numpy'],
-            critical=True,
-            auto_fix_function=self._fix_deviation_analysis
-        )
-        
         # Graph rendering özelliği
         self.feature_tests['graph_rendering'] = FeatureTest(
             feature_name='graph_rendering',
@@ -523,61 +501,6 @@ class FeatureStabilityTracker(QObject if PYQT_AVAILABLE else object):
         logger.info("Continuous monitoring stopped")
     
     # Test metodları
-    def _test_static_limits(self) -> Dict[str, Any]:
-        """Static limits testi."""
-        try:
-            from static_limits_panel import StaticLimitsPanel
-            
-            test_signals = ['test_signal_1', 'test_signal_2']
-            panel = StaticLimitsPanel(test_signals)
-            
-            # Temel işlevsellik testi
-            success = (panel is not None and 
-                      len(panel.all_signals) == len(test_signals) and
-                      hasattr(panel, 'limit_configs'))
-            
-            return {
-                'success': success,
-                'panel_created': panel is not None,
-                'signals_loaded': len(panel.all_signals) == len(test_signals),
-                'ui_elements': hasattr(panel, 'limit_configs')
-            }
-            
-        except ImportError:
-            return {'success': False, 'error': 'StaticLimitsPanel import failed'}
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-    
-    def _test_deviation_analysis(self) -> Dict[str, Any]:
-        """Deviation analysis testi."""
-        try:
-            from basic_deviation_panel import BasicDeviationPanel
-            import numpy as np
-            
-            test_signals = ['test_signal']
-            panel = BasicDeviationPanel(test_signals)
-            
-            # Test verisi ile hesaplama
-            test_data = np.random.normal(0, 1, 1000)
-            result = panel.calculate_deviation_for_signal(test_data, 'test_signal')
-            
-            success = (isinstance(result, dict) and 
-                      'deviations' in result and
-                      'bands' in result and
-                      'alerts' in result)
-            
-            return {
-                'success': success,
-                'panel_created': panel is not None,
-                'calculation_works': isinstance(result, dict),
-                'has_required_keys': 'deviations' in result if isinstance(result, dict) else False
-            }
-            
-        except ImportError:
-            return {'success': False, 'error': 'BasicDeviationPanel import failed'}
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-    
     def _test_graph_rendering(self) -> Dict[str, Any]:
         """Graph rendering testi."""
         try:
@@ -596,7 +519,7 @@ class FeatureStabilityTracker(QObject if PYQT_AVAILABLE else object):
             return {
                 'success': success,
                 'renderer_created': renderer is not None,
-                'has_methods': hasattr(renderer, 'apply_segmented_filter')
+                'has_methods': hasattr(renderer, 'apply_concatenated_filter')
             }
             
         except ImportError:
@@ -667,44 +590,6 @@ class FeatureStabilityTracker(QObject if PYQT_AVAILABLE else object):
             return {'success': False, 'error': str(e)}
     
     # Auto-fix metodları
-    def _fix_static_limits(self) -> Dict[str, Any]:
-        """Static limits auto-fix."""
-        try:
-            # Basit fix: Import'u kontrol et ve yeniden dene
-            import importlib
-            
-            try:
-                import static_limits_panel
-                importlib.reload(static_limits_panel)
-                
-                # Test et
-                test_result = self._test_static_limits()
-                return {'success': test_result.get('success', False), 'method': 'module_reload'}
-                
-            except Exception as e:
-                return {'success': False, 'error': f'Reload failed: {e}'}
-                
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-    
-    def _fix_deviation_analysis(self) -> Dict[str, Any]:
-        """Deviation analysis auto-fix."""
-        try:
-            import importlib
-            
-            try:
-                import basic_deviation_panel
-                importlib.reload(basic_deviation_panel)
-                
-                test_result = self._test_deviation_analysis()
-                return {'success': test_result.get('success', False), 'method': 'module_reload'}
-                
-            except Exception as e:
-                return {'success': False, 'error': f'Reload failed: {e}'}
-                
-        except Exception as e:
-            return {'success': False, 'error': str(e)}
-    
     def _fix_data_loading(self) -> Dict[str, Any]:
         """Data loading auto-fix."""
         try:

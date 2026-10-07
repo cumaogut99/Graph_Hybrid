@@ -45,7 +45,9 @@ class SignalProcessor(QObject):
         self.original_signal_data = {}  # Backup of original data for filter reset
         self.normalized_data = {}  # Cache for normalized data
         self.statistics_cache = {}  # Cache for statistics
-        self.mutex = QMutex()  # Thread safety
+        # Recursive: public methods call each other while holding the lock
+        # (e.g. get_signals_at_time -> get_signal_at_time)
+        self.mutex = QMutex(QMutex.Recursive)  # Thread safety
         
         # PERFORMANCE: Polars DataFrame'i sakla (lazy conversion için)
         self.raw_dataframe = None  # Polars DataFrame
@@ -606,7 +608,7 @@ class SignalProcessor(QObject):
             
             for name, data in self.signal_data.items():
                 # Check if this is a memory-mapped signal
-                if data.get('metadata', {}).get('memory_mapped'):
+                if self._is_file_backed(data):
                     # ✅ CACHE CHECK: Return cached downsampled data if available
                     if name in self._downsampled_cache:
                         logger.debug(f"[CACHE] Using cached downsampled data for '{name}'")
@@ -694,8 +696,8 @@ class SignalProcessor(QObject):
         signal_info = self.signal_data[signal_name]
         
         # Check if memory-mapped
-        if not signal_info.get('metadata', {}).get('memory_mapped'):
-            # Legacy CSV: Return full data (already in memory)
+        if not self._is_file_backed(signal_info):
+            # In-memory data (CSV or range-filtered): return full data
             logger.debug(f"[DOWNSAMPLE] CSV signal, returning full data")
             return {
                 'x_data': signal_info.get('x_data', np.array([])),
@@ -926,9 +928,13 @@ class SignalProcessor(QObject):
                     self.signal_data[signal_name]['y_data'] = y_data
                     # CRITICAL: Update original_y to match new data size
                     self.signal_data[signal_name]['original_y'] = y_data.copy()
-                    
+                    # Serve this in-memory data instead of the MPAI file until
+                    # restore_original_data() (see _is_file_backed)
+                    self.signal_data[signal_name]['filtered'] = True
+
                     # Clear related caches since data changed
                     self._clear_cache(signal_name)
+                    self._downsampled_cache.pop(signal_name, None)
                     
                     logger.debug(f"Updated filtered data for signal '{signal_name}' with {len(y_data)} points")
                 else:
@@ -949,8 +955,14 @@ class SignalProcessor(QObject):
                     
                     # Clear related caches since data changed
                     self._clear_cache(signal_name)
-                    
+
                     logger.debug(f"Restored original data for signal '{signal_name}' with {len(original_data['y_data'])} points")
+
+            # File-backed signals read from the MPAI file again
+            for info in self.signal_data.values():
+                info.pop('filtered', None)
+            self._downsampled_cache.clear()
+            self._cursor_value_cache.clear()
             
             logger.info("Restored original data for all signals")
     
@@ -1102,9 +1114,11 @@ class SignalProcessor(QObject):
                 
                 signal_info = self.signal_data[name]
                 metadata = signal_info.get('metadata', {})
-                is_mpai = metadata.get('mpai', False)
-                is_memory_mapped = metadata.get('memory_mapped', False)
-                
+                # A range-filtered signal holds its (concatenated) data in memory;
+                # the file has the unfiltered data and a different timeline
+                is_mpai = metadata.get('mpai', False) and not signal_info.get('filtered')
+                is_memory_mapped = self._is_file_backed(signal_info)
+
                 # ========== MEMORY-MAPPED MPAI: Use MpaiDirectoryReader ==========
                 if is_memory_mapped:
                     reader = signal_info.get('mpai_reader')
@@ -1458,7 +1472,7 @@ class SignalProcessor(QObject):
                 metadata = info.get('metadata', {})
                 
                 # Check if memory mapped MPAI
-                if metadata.get('memory_mapped', False) and 'mpai_reader' in info:
+                if self._is_file_backed(info) and 'mpai_reader' in info:
                     reader = info['mpai_reader']
                     if reader not in mpai_groups:
                         mpai_groups[reader] = []
@@ -1567,8 +1581,8 @@ class SignalProcessor(QObject):
             
             signal_info = self.signal_data[signal_name]
             metadata = signal_info.get('metadata', {})
-            is_memory_mapped = metadata.get('memory_mapped', False)
-            
+            is_memory_mapped = self._is_file_backed(signal_info)
+
             # ========== MEMORY-MAPPED MPAI: Use streaming reader ==========
             if is_memory_mapped:
                 reader = signal_info.get('mpai_reader')
@@ -1644,7 +1658,7 @@ class SignalProcessor(QObject):
                 logger.warning(f"Signal {signal_name} has empty or no data")
                 return None
             
-            is_mpai = metadata.get('mpai', False)
+            is_mpai = metadata.get('mpai', False) and not signal_info.get('filtered')
             logger.debug(f"Signal info: is_mpai={is_mpai}, preview_range=[{x_data[0]}, {x_data[-1]}], data_len={len(x_data)}")
             
             # Check bounds
@@ -1726,8 +1740,8 @@ class SignalProcessor(QObject):
             
             signal_info = self.signal_data[signal_name]
             metadata = signal_info.get('metadata', {})
-            is_memory_mapped = metadata.get('memory_mapped', False)
-            
+            is_memory_mapped = self._is_file_backed(signal_info)
+
             # ========== MEMORY-MAPPED MPAI: Use streaming reader ==========
             if is_memory_mapped:
                 reader = signal_info.get('mpai_reader')
@@ -1777,6 +1791,16 @@ class SignalProcessor(QObject):
                 'statistics': stats
             }
     
+    @staticmethod
+    def _is_file_backed(signal_info: Dict) -> bool:
+        """
+        True if the signal's data must be read from the memory-mapped MPAI
+        file. Not while a range filter has replaced it with in-memory
+        (concatenated) data: the file holds the unfiltered data on a
+        different timeline.
+        """
+        return bool(signal_info.get('metadata', {}).get('memory_mapped')) and not signal_info.get('filtered')
+
     def _clear_cache(self, signal_name: Optional[str] = None):
         """Clear caches for specific signal or all signals."""
         if signal_name:

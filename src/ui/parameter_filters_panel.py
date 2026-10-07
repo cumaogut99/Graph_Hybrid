@@ -16,13 +16,17 @@ logger = logging.getLogger(__name__)
 
 
 class ParameterFiltersPanel(QWidget):
-    """Panel for configuring range filters."""
+    """
+    Panel for configuring range filters.
+
+    Filters always use concatenated display: the time ranges where all
+    conditions hold are joined and applied to every graph.
+    """
     
     range_filter_applied = pyqtSignal(dict)
 
-    def __init__(self, graph_index: int, all_signals: List[str], parent=None):
+    def __init__(self, all_signals: List[str], parent=None):
         super().__init__(parent)
-        self.graph_index = graph_index
         self.all_signals = all_signals if all_signals else []
         self.conditions = []
         self.condition_widgets = []
@@ -159,9 +163,6 @@ class ParameterFiltersPanel(QWidget):
             msg.exec_()
             return
 
-        # Add graph index to filter data
-        filter_data['graph_index'] = self.graph_index
-        
         # Emit signal to parent widget for filter application
         self.range_filter_applied.emit(filter_data)
         
@@ -171,7 +172,7 @@ class ParameterFiltersPanel(QWidget):
         msg = QMessageBox(self)
         msg.setStyleSheet(self._get_message_box_style())
         msg.setIcon(QMessageBox.Information)
-        msg.setText(f"Applied {len(filter_data['conditions'])} range condition(s) in {filter_data['mode']} mode to Graph {self.graph_index + 1}.")
+        msg.setText(f"Applied {len(filter_data['conditions'])} range condition(s) to all graphs.")
         msg.setWindowTitle("Filters Applied")
         msg.exec_()
         
@@ -180,7 +181,7 @@ class ParameterFiltersPanel(QWidget):
         msg = QMessageBox(self)
         msg.setStyleSheet(self._get_message_box_style())
         msg.setIcon(QMessageBox.Question)
-        msg.setText(f'Are you sure you want to reset all range filters for Graph {self.graph_index + 1}?')
+        msg.setText('Are you sure you want to reset all range filters?')
         msg.setWindowTitle('Reset Filters')
         msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
         msg.setDefaultButton(QMessageBox.No)
@@ -199,24 +200,20 @@ class ParameterFiltersPanel(QWidget):
             # Add one default condition
             self._add_range_condition()
             
-            # Emit reset signal - CRITICAL: Use current mode, not hardcoded 'segmented'!
-            # This ensures concatenated filters are properly cleaned up
-            current_mode = 'segmented' if self.segmented_mode_rb.isChecked() else 'concatenated'
             reset_data = {
-                'graph_index': self.graph_index,
                 'conditions': [],  # Empty conditions = reset/clear filter
-                'mode': current_mode  # Preserve current mode for proper cleanup
+                'mode': 'concatenated'
             }
             self.range_filter_applied.emit(reset_data)
             
             msg = QMessageBox(self)
             msg.setStyleSheet(self._get_message_box_style())
             msg.setIcon(QMessageBox.Information)
-            msg.setText(f"Range filters reset for Graph {self.graph_index + 1}.")
+            msg.setText("Range filters reset.")
             msg.setWindowTitle("Filters Reset")
             msg.exec_()
         else:
-            print(f"[DEBUG] Range filters reset cancelled for graph {self.graph_index + 1}")
+            logger.debug("Range filters reset cancelled")
 
     def _create_range_filter_content(self, parent_layout):
         """Create the advanced value range filter content with integrated parameter and range selection."""
@@ -293,30 +290,6 @@ class ParameterFiltersPanel(QWidget):
         buttons_layout.addStretch()
         
         parent_layout.addLayout(buttons_layout)
-        
-        # Filter mode selection
-        mode_group = QGroupBox("🔗 Display Mode")
-        mode_group.setStyleSheet(self._get_group_style())
-        mode_layout = QVBoxLayout(mode_group)
-        mode_layout.setSpacing(3)  # Daha az spacing
-        mode_layout.setContentsMargins(8, 15, 8, 8)  # Optimize edilmiş margins
-        
-        self.segmented_mode_rb = QCheckBox("Segmented Display (Show matching time segments with gaps)")
-        self.segmented_mode_rb.setStyleSheet("color: #ffffff; font-size: 12px;")
-        
-        self.concatenated_mode_rb = QCheckBox("Concatenated Display (Apply global time filter to all graphs)")
-        self.concatenated_mode_rb.setStyleSheet("color: #ffffff; font-size: 12px;")
-        
-        self.segmented_mode_rb.setChecked(True)  # Default to segmented
-        
-        # Make them mutually exclusive
-        self.segmented_mode_rb.toggled.connect(lambda checked: self.concatenated_mode_rb.setChecked(not checked) if checked else None)
-        self.concatenated_mode_rb.toggled.connect(lambda checked: self.segmented_mode_rb.setChecked(not checked) if checked else None)
-        
-        mode_layout.addWidget(self.segmented_mode_rb)
-        mode_layout.addWidget(self.concatenated_mode_rb)
-        
-        parent_layout.addWidget(mode_group)
         
     def _add_range_condition(self):
         """Adds a new parameter condition box to the layout."""
@@ -542,14 +515,13 @@ class ParameterFiltersPanel(QWidget):
                 
         return {
             'conditions': conditions,
-            'mode': 'segmented' if self.segmented_mode_rb.isChecked() else 'concatenated'
+            'mode': 'concatenated'  # only supported display mode
         }
         
     def set_range_filter_conditions(self, filter_data: dict):
         """Set range filter conditions from saved data."""
         try:
             conditions = filter_data.get('conditions', [])
-            mode = filter_data.get('mode', 'segmented')
             
             # Clear existing conditions first
             self.range_conditions.clear()
@@ -557,14 +529,6 @@ class ParameterFiltersPanel(QWidget):
                 child = self.conditions_layout.itemAt(i).widget()
                 if child:
                     child.setParent(None)
-            
-            # Set mode
-            if mode == 'segmented':
-                self.segmented_mode_rb.setChecked(True)
-                self.concatenated_mode_rb.setChecked(False)
-            else:
-                self.concatenated_mode_rb.setChecked(True)
-                self.segmented_mode_rb.setChecked(False)
             
             # Add conditions or create default if empty
             if conditions:
@@ -601,7 +565,7 @@ class ParameterFiltersPanel(QWidget):
                 # Add default empty condition
                 self._add_range_condition()
                 
-            logger.info(f"Loaded {len(conditions)} range filter conditions for graph {self.graph_index}")
+            logger.info(f"Loaded {len(conditions)} range filter conditions")
             
         except Exception as e:
             logger.error(f"Error loading range filter conditions: {e}")
