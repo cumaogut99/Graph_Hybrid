@@ -1559,6 +1559,39 @@ class SignalProcessor(QObject):
                     
         return results
 
+    def nearest_sample_time(self, signal_name: str, time_point: float) -> Optional[float]:
+        """
+        Time of the recorded sample of a signal nearest to time_point
+        (cursor "snap to data points"), or None if the signal has no data.
+
+        File-backed signals are evenly sampled, so the time is rounded to the
+        sample grid of the whole file (the in-memory x_data is only a preview).
+        In-memory data (CSV, range-filtered timeline) is searched directly.
+        """
+        with QMutexLocker(self.mutex):
+            info = self.signal_data.get(signal_name)
+            if not info:
+                return None
+            metadata = info.get('metadata', {})
+            full_count = metadata.get('full_count', 0)
+            time_range = metadata.get('full_time_range')
+            if self._is_file_backed(info) and time_range and full_count > 1:
+                t_first, t_last = time_range
+                dt = (t_last - t_first) / (full_count - 1)
+                if dt > 0:
+                    index = min(max(round((time_point - t_first) / dt), 0), full_count - 1)
+                    return float(t_first + index * dt)
+
+            x_data = info.get('x_data')
+            if x_data is None or len(x_data) == 0:
+                return None
+            index = int(np.searchsorted(x_data, time_point))
+            if index >= len(x_data):
+                return float(x_data[-1])
+            if index > 0 and time_point - x_data[index - 1] <= x_data[index] - time_point:
+                index -= 1
+            return float(x_data[index])
+
     def get_signal_at_time(self, signal_name: str, time_point: float) -> Optional[float]:
         """
         Get signal value at specific time point using interpolation.

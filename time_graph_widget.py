@@ -496,6 +496,7 @@ class TimeGraphWidget(QWidget):
             # and discarded the user's zoom on every redraw. The view is set
             # by _redraw_all_signals; new cursors go to 1/3 and 2/3 of it.
             self.cursor_manager = CursorManager(plot_widgets)
+            self.cursor_manager.set_snap_provider(self._nearest_sample_time)
             
             # Assign the new cursor manager to the active container
             if active_container:
@@ -522,6 +523,20 @@ class TimeGraphWidget(QWidget):
             self.cursor_manager.set_mode("dual")
             self.current_cursor_mode = "dual"
             logger.debug("Applied cursor mode: dual (permanent setting)")
+
+    def _nearest_sample_time(self, x: float):
+        """
+        Cursor snap target: the sample nearest to x of a signal shown in the
+        active tab (the signals of a file share one time base), or of any
+        signal if the tab is empty.
+        """
+        tab_mapping = self.graph_signal_mapping.get(self.tab_widget.currentIndex(), {})
+        shown = [name for names in tab_mapping.values() for name in names]
+        for name in shown or list(self.signal_processor.signal_data):
+            sample_time = self.signal_processor.nearest_sample_time(name, x)
+            if sample_time is not None:
+                return sample_time
+        return None
 
     def _force_cursor_mode_sync(self):
         """Ensure cursor mode is set to dual (permanently)."""

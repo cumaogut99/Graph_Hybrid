@@ -52,7 +52,9 @@ class CursorManager(QObject):
         
         # Snap to data points feature
         self.snap_to_data_enabled = False
-        self.signal_data_cache = {}  # Cache for signal data for snapping
+        # x -> time of the nearest recorded sample (or None); set by the
+        # owner widget, which knows the data shown in these plots
+        self.snap_provider = None
         
         # Viewport-locked cursor positions (relative positions: 0.0 to 1.0)
         # Cursors stay at fixed screen positions during pan/zoom
@@ -490,10 +492,17 @@ class CursorManager(QObject):
         """Enable or disable snap to data points functionality."""
         self.snap_to_data_enabled = enabled
         logger.debug(f"Snap to data points {'enabled' if enabled else 'disabled'}")
-        
-        # Update signal data cache when enabling
+
+        # Move the existing cursors onto samples right away
         if enabled:
-            self._update_signal_data_cache()
+            for cursors, sync in ((self.dual_cursors_1, self._sync_dual_cursors_1),
+                                  (self.dual_cursors_2, self._sync_dual_cursors_2)):
+                if cursors:
+                    sync(cursors[0])
+
+    def set_snap_provider(self, provider):
+        """provider(x) -> time of the data sample nearest to x, or None."""
+        self.snap_provider = provider
     
     def set_constrain_to_view(self, enabled: bool):
         """Enable or disable cursor constraint to view range."""
@@ -539,81 +548,16 @@ class CursorManager(QObject):
         except Exception as e:
             logger.warning(f"Error constraining cursors: {e}")
 
-    def _update_signal_data_cache(self):
-        """Update the cache of signal data for snapping."""
-        self.signal_data_cache.clear()
-        
-        # Get signal data from parent widget
-        try:
-            # Try to get signal processor from parent
-            parent_widget = None
-            for plot_widget in self.plot_widgets:
-                if hasattr(plot_widget, 'parent') and plot_widget.parent():
-                    parent_widget = plot_widget.parent()
-                    while parent_widget and not hasattr(parent_widget, 'signal_processor'):
-                        parent_widget = parent_widget.parent()
-                    if parent_widget and hasattr(parent_widget, 'signal_processor'):
-                        break
-            
-            if parent_widget and hasattr(parent_widget, 'signal_processor'):
-                signal_processor = parent_widget.signal_processor
-                
-                # Get all signal names
-                signal_names = signal_processor.get_signal_names()
-                
-                for signal_name in signal_names:
-                    signal_data = signal_processor.get_signal_data(signal_name)
-                    if signal_data and 'x_data' in signal_data and 'y_data' in signal_data:
-                        x_data = signal_data['x_data']
-                        y_data = signal_data['y_data']
-                        
-                        if len(x_data) > 0 and len(y_data) > 0:
-                            self.signal_data_cache[signal_name] = {
-                                'x_data': x_data,
-                                'y_data': y_data
-                            }
-                
-                logger.debug(f"Updated signal data cache with {len(self.signal_data_cache)} signals")
-                
-        except Exception as e:
-            logger.warning(f"Failed to update signal data cache: {e}")
-
     def _find_nearest_data_point(self, x_pos: float) -> float:
-        """Find the nearest data point X coordinate to the given position."""
-        if not self.snap_to_data_enabled or not self.signal_data_cache:
+        """Time of the data sample nearest to x_pos when snapping is enabled."""
+        if not self.snap_to_data_enabled or self.snap_provider is None:
             return x_pos
-        
-        nearest_x = x_pos
-        min_distance = float('inf')
-        
         try:
-            # Check all cached signals for nearest point
-            for signal_name, data in self.signal_data_cache.items():
-                x_data = data['x_data']
-                
-                if len(x_data) == 0:
-                    continue
-                
-                # Use numpy for efficient nearest point finding
-                import numpy as np
-                x_array = np.array(x_data)
-                
-                # Find the index of the closest point
-                idx = np.argmin(np.abs(x_array - x_pos))
-                closest_x = x_array[idx]
-                distance = abs(closest_x - x_pos)
-                
-                if distance < min_distance:
-                    min_distance = distance
-                    nearest_x = closest_x
-            
-            logger.debug(f"Snapped cursor from {x_pos:.6f} to {nearest_x:.6f} (distance: {min_distance:.6f})")
-            
+            nearest_x = self.snap_provider(x_pos)
         except Exception as e:
             logger.warning(f"Error finding nearest data point: {e}")
             return x_pos
-        
-        return nearest_x
+        return x_pos if nearest_x is None else nearest_x
 
     def _constrain_to_view_range(self, x_pos: float) -> float:
         """Constrain cursor position to the current view range."""
