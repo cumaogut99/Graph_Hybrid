@@ -63,7 +63,7 @@ class CsvToMpaiConverter(QObject):
     
     # Bump when the converted output changes for the same input and settings;
     # DataLoader includes it in the cache key so stale MPAIs are regenerated
-    CONVERTER_VERSION = 7
+    CONVERTER_VERSION = 8
 
     # Signals
     progress = Signal(str, int)  # message, percentage
@@ -671,6 +671,9 @@ class CsvToMpaiConverter(QObject):
         
         # Initialize Writer
         sampling_freq = self.settings.get('sampling_frequency', 1000.0)
+        # Time of the first row: the reader builds plot times as
+        # start_time + i * dt, so a log starting at 09:08:49 must not start at 0
+        start_time = 0.0
         
         # AUTO-DETECT Sampling Frequency if Time Column exists
         if 'time_column' in self.settings:
@@ -698,6 +701,9 @@ class CsvToMpaiConverter(QObject):
                         # and the batches start again from the first row
                         self.non_numeric_report.clear()
                         self._clock_state.clear()
+                        finite = time_vals[np.isfinite(time_vals)]
+                        if len(finite):
+                            start_time = float(finite[0])
                         # Calculate differences
                         if len(time_vals) > 5:
                             diffs = np.diff(time_vals)
@@ -712,7 +718,7 @@ class CsvToMpaiConverter(QObject):
                 except Exception as e:
                     logger.warning(f"[CSV AUTO-DETECT] Failed to detect sampling rate: {e}")
 
-        writer.initialize(column_names, sampling_freq, overwrite=True)
+        writer.initialize(column_names, sampling_freq, start_time=start_time, overwrite=True)
 
         # Read CSV in Batches using same options as _scan_csv
         options = self._csv_read_options()

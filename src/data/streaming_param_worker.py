@@ -121,7 +121,7 @@ class StreamingParamWorker(QThread):
         writer.initialize(
             channel_names=[self.param_name],  # Only the calculated column (time is synthetic)
             sample_rate=sample_rate,
-            start_time=0.0,
+            start_time=getattr(self.input_reader, 't0', 0.0),
             overwrite=True
         )
         

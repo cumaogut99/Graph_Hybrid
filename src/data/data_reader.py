@@ -206,6 +206,11 @@ class MpaiDirectoryReader:
             }
             # Populate name map
             self.name_to_id[self.channels[ch_id]["name"]] = ch_id
+
+        # Time of the first sample (all channels share one time base)
+        t0_node = root.find("Channels/Channel/T0")
+        if t0_node is not None and t0_node.text:
+            self.t0 = float(t0_node.text)
             
     def _open_streams(self):
         """

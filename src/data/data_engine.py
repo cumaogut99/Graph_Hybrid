@@ -136,7 +136,8 @@ class DataEngine:
                          channel_names: List[str], 
                          sample_rate: float, 
                          dtype: np.dtype,
-                         units: List[str]):
+                         units: List[str],
+                         start_time: float = 0.0):
         """Creates the setup.xml metadata file."""
         root = ET.Element("Setup")
         
@@ -160,7 +161,7 @@ class DataEngine:
             ET.SubElement(ch_elem, "RedFile").text = f"channel_{i}.red"
             
             # Implicit Timing Formula Constants
-            ET.SubElement(ch_elem, "T0").text = "0.0" 
+            ET.SubElement(ch_elem, "T0").text = repr(float(start_time))
             ET.SubElement(ch_elem, "Dt").text = str(1.0 / sample_rate)
 
         tree = ET.ElementTree(root)
@@ -283,7 +284,8 @@ class MpaiStreamWriter:
             channel_names, 
             sample_rate, 
             np.float64, # Defaulting to Float64 for safety
-            ["" for _ in channel_names] # Empty units
+            ["" for _ in channel_names], # Empty units
+            start_time
         )
         
         # Open Handles

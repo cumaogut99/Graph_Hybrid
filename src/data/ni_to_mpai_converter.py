@@ -197,8 +197,18 @@ class NiToMpaiConverter(QObject):
     ) -> int:
         from src.data.data_engine import MpaiStreamWriter
 
+        # Time of the first sample, so plots keep the recording's start time
+        start_time = 0.0
+        if time_col and row_count > 0:
+            try:
+                first = np.asarray(reader.read_channel(time_col, start=0, count=1), dtype=np.float64)
+                if len(first) and np.isfinite(first[0]):
+                    start_time = float(first[0])
+            except Exception as exc:
+                logger.warning("[NI→MPAI] Başlangıç zamanı okunamadı: %s", exc)
+
         writer = MpaiStreamWriter(self.mpai_path)
-        writer.initialize(col_order, sampling_freq, overwrite=True)
+        writer.initialize(col_order, sampling_freq, start_time=start_time, overwrite=True)
 
         time_step   = 1.0 / max(sampling_freq, 1.0)
         time_offset = 0.0
