@@ -13,7 +13,8 @@ from typing import Dict, List, Optional, Any, TYPE_CHECKING
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QScrollArea,
     QGroupBox, QComboBox, QListWidget, QLineEdit, QCheckBox, QRadioButton,
-    QButtonGroup, QPushButton, QListWidgetItem, QSpinBox, QSlider, QFormLayout
+    QButtonGroup, QPushButton, QListWidgetItem, QSpinBox, QSlider, QFormLayout,
+    QMenu
 )
 from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
 from PyQt5.QtGui import QFont
@@ -60,6 +61,7 @@ class SettingsPanelManager(QObject):
         
         # Create settings sections
         self._create_display_settings(main_layout)
+        self._create_marker_settings(main_layout)
         self._create_export_settings(main_layout)
         
         main_layout.addStretch()
@@ -85,6 +87,51 @@ class SettingsPanelManager(QObject):
         layout.addRow("Theme:", self.theme_combo)
 
         parent_layout.addWidget(group)
+
+    def _create_marker_settings(self, parent_layout):
+        """Markers of the active graph tab (added from the plot's right-click menu)."""
+        group = QGroupBox("📍 Markers")
+        layout = QVBoxLayout(group)
+        layout.setSpacing(6)
+
+        self.marker_hint_label = QLabel("Right-click a graph → Add Marker")
+        self.marker_hint_label.setStyleSheet("font-style: italic; color: #888888;")
+        layout.addWidget(self.marker_hint_label)
+
+        self.marker_list = QListWidget()
+        self.marker_list.setMaximumHeight(160)
+        self.marker_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.marker_list.customContextMenuRequested.connect(self._on_marker_context_menu)
+        self.marker_list.setVisible(False)  # shown once a marker exists
+        layout.addWidget(self.marker_list)
+
+        parent_layout.addWidget(group)
+
+    def update_marker_list(self):
+        """Show the markers of the active graph tab."""
+        self.marker_list.clear()
+        container = self.parent.get_active_graph_container()
+        plot_manager = getattr(container, 'plot_manager', None)
+        markers = plot_manager.get_markers() if plot_manager else []
+        for marker in markers:
+            text = f"Marker {marker['number']}  —  {plot_manager.format_x_value(marker['x'])}"
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, marker['number'])
+            self.marker_list.addItem(item)
+        self.marker_list.setVisible(bool(markers))
+        self.marker_hint_label.setVisible(not markers)
+
+    def _on_marker_context_menu(self, pos):
+        item = self.marker_list.itemAt(pos)
+        if item is None:
+            return
+        menu = QMenu(self.marker_list)
+        remove_action = menu.addAction("Remove")
+        if menu.exec_(self.marker_list.mapToGlobal(pos)) == remove_action:
+            container = self.parent.get_active_graph_container()
+            if container is not None:
+                # The plot manager's markers_changed signal refreshes the list
+                container.plot_manager.remove_marker(item.data(Qt.UserRole))
 
     # Cursor and Performance settings removed - functionality moved to Graph Settings panel
     
@@ -503,7 +550,7 @@ class SettingsPanelManager(QObject):
                 font-size: 10px;
                 spacing: 5px;
             }}
-            QComboBox, QSpinBox, QLineEdit {{
+            QComboBox, QSpinBox, QLineEdit, QListWidget {{
                 border: 1px solid {theme_colors['border']};
                 border-radius: 4px;
                 padding: 4px;

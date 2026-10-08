@@ -37,6 +37,7 @@ class PlotManager(QObject):
     # Signals
     plot_clicked = Signal(int, float, float)  # plot_index, x, y
     range_selected = Signal(float, float)  # start, end
+    markers_changed = Signal()  # a marker was added or removed
     
     def __init__(self, parent_widget: "TimeGraphWidget"):
         super().__init__()
@@ -95,6 +96,13 @@ class PlotManager(QObject):
         self._lod_hysteresis_up = 1.2   # Switch to AGGREGATED when > threshold * 1.2
         self._lod_hysteresis_down = 0.8  # Switch to RAW when < threshold * 0.8
         
+        # Markers: numbered vertical lines shown on every plot of this tab.
+        # Kept here (not as plot items) so they survive plot clears/rebuilds.
+        self.markers: List[Dict[str, Any]] = []  # [{'number': int, 'x': float}]
+        self._next_marker_number = 1
+        self._marker_items: List[tuple] = []  # (plot_widget, InfiniteLine)
+        self._context_menu_x = None  # x where the plot context menu was opened
+
         self._setup_plot_panel()
         self._rebuild_ui()  # Initial UI creation
     
@@ -653,6 +661,8 @@ class PlotManager(QObject):
         for i in range(self.subplot_count):
             # Create custom datetime axis for bottom axis
             datetime_axis = DateTimeAxisItem(orientation='bottom')
+            # Keep the time format when the plots are rebuilt (graph count change)
+            datetime_axis.is_datetime_axis = getattr(self, 'datetime_axis_enabled', False)
             plot_widget = pg.PlotWidget(axisItems={'bottom': datetime_axis})
             legend = plot_widget.addLegend() # Add legend to each plot
 
@@ -751,6 +761,7 @@ class PlotManager(QObject):
         self.main_layout.addWidget(self.plot_container)
         self.main_layout.addWidget(self.settings_container)
         
+        self._draw_markers()
         logger.info(f"UI rebuilt with {self.subplot_count} subplots.")
 
     def get_subplot_count(self) -> int:
@@ -1088,6 +1099,8 @@ class PlotManager(QObject):
         self.current_signals.clear()
         self.signal_colors.clear()  # Clear color info as well
         self.original_data_ranges.clear()  # Clear stored original ranges
+
+        self._draw_markers()  # plot_widget.clear() removed the marker lines
         
         logger.debug("Cleared all signals while preserving tooltips")
     
@@ -1249,6 +1262,8 @@ class PlotManager(QObject):
             # Sinyal referanslarını temizle
             self.current_signals.clear()
             self.signal_colors.clear()
+
+            self._draw_markers()  # plot_widget.clear() removed the marker lines
             
             logger.debug("All signals cleared from plots")
             
@@ -1517,8 +1532,76 @@ class PlotManager(QObject):
         
         menu.aboutToShow.connect(update_menu)
         menu.addAction(zoom_to_cursors_action)
+
+        # "Add Marker" at the x position where the menu was opened
+        original_raise_menu = view_box.raiseContextMenu
+
+        def raise_menu(ev):
+            self._context_menu_x = view_box.mapSceneToView(ev.scenePos()).x()
+            original_raise_menu(ev)
+
+        view_box.raiseContextMenu = raise_menu
+
+        add_marker_action = QAction("📍 Add Marker", menu)
+        add_marker_action.triggered.connect(
+            lambda: self._context_menu_x is not None and self.add_marker(self._context_menu_x))
+        menu.addAction(add_marker_action)
         
         logger.debug(f"Custom context menu setup for plot {plot_index}")
+
+    # ------------------------------------------------------------------
+    # Markers
+    # ------------------------------------------------------------------
+    MARKER_COLOR = '#ff9f1c'
+
+    def add_marker(self, x: float) -> int:
+        """Add a numbered vertical marker at x on every plot of this tab."""
+        number = self._next_marker_number
+        self._next_marker_number += 1
+        self.markers.append({'number': number, 'x': float(x)})
+        self._draw_markers()
+        self.markers_changed.emit()
+        logger.info(f"Marker {number} added at x={x}")
+        return number
+
+    def remove_marker(self, number: int):
+        """Remove the marker with this number (numbers of others stay the same)."""
+        self.markers = [m for m in self.markers if m['number'] != number]
+        self._draw_markers()
+        self.markers_changed.emit()
+
+    def get_markers(self) -> List[Dict[str, Any]]:
+        return list(self.markers)
+
+    def format_x_value(self, x: float) -> str:
+        """x as shown on the time axis (clock/date when the datetime axis is on)."""
+        if self.plot_widgets:
+            axis = self.plot_widgets[0].getAxis('bottom')
+            if isinstance(axis, DateTimeAxisItem) and axis.is_datetime_axis:
+                return axis.tickStrings([x], 1.0, 0.001)[0]
+        return f"{x:.6g}"
+
+    def _draw_markers(self):
+        """(Re)create the marker lines on all current plot widgets."""
+        for plot_widget, line in self._marker_items:
+            try:
+                plot_widget.removeItem(line)
+            except Exception:
+                pass  # already removed by plot_widget.clear() or a rebuild
+        self._marker_items = []
+
+        pen = pg.mkPen(color=self.MARKER_COLOR, width=2, style=Qt.DashLine)
+        for marker in self.markers:
+            for plot_widget in self.plot_widgets:
+                line = pg.InfiniteLine(
+                    pos=marker['x'], angle=90, movable=False, pen=pen,
+                    label=str(marker['number']),
+                    labelOpts={'position': 0.95, 'color': self.MARKER_COLOR,
+                               'fill': (0, 0, 0, 160), 'movable': False},
+                )
+                line.setZValue(50)
+                plot_widget.addItem(line, ignoreBounds=True)
+                self._marker_items.append((plot_widget, line))
 
     def set_legend_visibility(self, visible: bool):
         """Set legend visibility for all plots."""

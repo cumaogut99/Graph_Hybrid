@@ -422,6 +422,7 @@ class TimeGraphWidget(QWidget):
             self.toolbar_manager.set_graph_count(graph_count)
             # Rebuild graph settings panel when tab changes
             self.graph_settings_panel_manager.rebuild_controls(graph_count)
+        self.settings_panel_manager.update_marker_list()
 
         # Use delayed initialization for tab changes too
         QTimer.singleShot(50, self._delayed_post_tab_change)
@@ -1216,6 +1217,10 @@ class TimeGraphWidget(QWidget):
         
         # Connect drag-drop signal to plot column on graph
         graph_container.column_dropped.connect(self._on_column_dropped_on_graph)
+
+        # Markers of the active tab are listed in the general settings panel
+        graph_container.plot_manager.markers_changed.connect(
+            self.settings_panel_manager.update_marker_list)
         
         self.graph_containers.append(graph_container)
         

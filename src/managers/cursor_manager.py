@@ -474,7 +474,7 @@ class CursorManager(QObject):
             
     def can_zoom_to_cursors(self) -> bool:
         """Check if zoom to cursors is possible."""
-        result = (self.current_mode == "dual" and 
+        result = bool(self.current_mode == "dual" and 
                  self.dual_cursors_1 and 
                  self.dual_cursors_2 and
                  len(self.dual_cursors_1) > 0 and 
