@@ -458,7 +458,7 @@ class CsvToMpaiConverter(QObject):
         new_col_name = self.settings.get('new_time_column_name', 'time_generated')
         
         # DEBUG: Log what we're looking for and what's available
-        logger.info(f"[TIME TRACE] Looking for time_column='{time_col_name}' in columns: {df.columns[:5]}...")
+        logger.debug(f"[TIME TRACE] Looking for time_column='{time_col_name}' in columns: {df.columns[:5]}...")
         
         # Scenario A: Generate Custom Time
         # OR Scenario C: Fallback (No time column found)
@@ -471,7 +471,7 @@ class CsvToMpaiConverter(QObject):
                 if col.lower() == time_col_name.lower() or \
                    time_col_name.lower() in col.lower() or \
                    col.lower() in time_col_name.lower():
-                    logger.info(f"[TIME TRACE] Found by partial match: '{time_col_name}' -> '{col}'")
+                    logger.debug(f"[TIME TRACE] Found by partial match: '{time_col_name}' -> '{col}'")
                     time_col_name = col
                     self.settings['time_column'] = col  # Update settings
                     time_col_found = True
@@ -479,7 +479,7 @@ class CsvToMpaiConverter(QObject):
         
         should_generate = create_custom or not time_col_found
         
-        logger.info(f"[TIME TRACE] time_col_found={time_col_found}, should_generate={should_generate}")
+        logger.debug(f"[TIME TRACE] time_col_found={time_col_found}, should_generate={should_generate}")
         
         if should_generate:
             sampling_freq = self.settings.get('sampling_frequency', 1000.0)
@@ -499,54 +499,54 @@ class CsvToMpaiConverter(QObject):
             # Add column
             target_name = new_col_name if create_custom else 'time'
             df = df.with_columns(pl.Series(target_name, time_arr))
-            logger.info(f"[TIME TRACE] Generated time column '{target_name}' with {n_rows} rows")
+            logger.debug(f"[TIME TRACE] Generated time column '{target_name}' with {n_rows} rows")
             
         # Scenario B: Use/Fix Existing Time Column
         elif time_col_name in df.columns:
             # Ensure float64
             try:
                 col = df[time_col_name]
-                logger.info(f"[TIME TRACE] Using existing time column '{time_col_name}' (dtype={col.dtype})")
+                logger.debug(f"[TIME TRACE] Using existing time column '{time_col_name}' (dtype={col.dtype})")
                 
                 # Log first few values for debugging
                 if col.len() > 0:
                     sample_values = col.head(min(5, col.len())).to_list()
-                    logger.info(f"[TIME TRACE] Sample values: {sample_values}")
+                    logger.debug(f"[TIME TRACE] Sample values: {sample_values}")
                 
                 if col.dtype == pl.Utf8 or col.dtype == pl.String:
                     # String column - need special parsing
-                    logger.info(f"[TIME TRACE] Time column is String, attempting conversion...")
+                    logger.debug(f"[TIME TRACE] Time column is String, attempting conversion...")
                     
                     # Numbers (decimal comma aware) or date/time text -> epoch
                     # seconds; invalid values become 0 and are reported
                     converted_col = self._to_numeric_series(col)
                     if time_col_name in self._datetime_columns:
                         self.time_is_datetime = True
-                        logger.info(f"[TIME TRACE] Parsed as datetime, converted to epoch seconds")
+                        logger.debug(f"[TIME TRACE] Parsed as datetime, converted to epoch seconds")
                     df = df.with_columns(converted_col.alias(time_col_name))
                     
                     # Log result
                     result_col = df[time_col_name]
                     if result_col.len() > 0:
                         sample_after = result_col.head(min(5, result_col.len())).to_list()
-                        logger.info(f"[TIME TRACE] After conversion: {sample_after}")
+                        logger.debug(f"[TIME TRACE] After conversion: {sample_after}")
                     
                 elif col.dtype in (pl.Datetime, pl.Date):
                     # try_parse_dates gives Datetime/Date; a plain Float64 cast
                     # would yield microseconds, but the time axis expects epoch
                     # seconds (same as the string branch above)
-                    logger.info(f"[TIME TRACE] Converting {col.dtype} to epoch seconds")
+                    logger.debug(f"[TIME TRACE] Converting {col.dtype} to epoch seconds")
                     epoch_s = (col.dt.epoch("us").cast(pl.Float64) / 1e6) if col.dtype == pl.Datetime \
                         else col.dt.epoch("s").cast(pl.Float64)
                     df = df.with_columns(epoch_s.fill_null(0.0).alias(time_col_name))
                     self.time_is_datetime = True
                 elif col.dtype not in [pl.Float64, pl.Float32]:
                     # Numeric but not float - simple cast
-                    logger.info(f"[TIME TRACE] Casting {col.dtype} to Float64")
+                    logger.debug(f"[TIME TRACE] Casting {col.dtype} to Float64")
                     df = df.with_columns(col.cast(pl.Float64, strict=False).fill_null(0.0).alias(time_col_name))
                 else:
                     # Already float - just fill nulls
-                    logger.info(f"[TIME TRACE] Already Float64, filling nulls")
+                    logger.debug(f"[TIME TRACE] Already Float64, filling nulls")
                     df = df.with_columns(col.fill_null(0.0).alias(time_col_name))
 
                 # Time unit / Unix timestamp chosen in the import dialog
