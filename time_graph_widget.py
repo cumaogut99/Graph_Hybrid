@@ -1688,6 +1688,10 @@ class TimeGraphWidget(QWidget):
 
     def _redraw_after_filter_change(self):
         """Redraw every tab after the filter replaced/restored the time axis."""
+        # Markers are times on the previous timeline: they would point at the
+        # wrong data on the new one
+        for container in self.graph_containers:
+            container.plot_manager.clear_markers()
         self._redraw_all_signals()
         # The timeline changed (concatenated or original), so the previous
         # zoom is meaningless: fit every plot to the new data

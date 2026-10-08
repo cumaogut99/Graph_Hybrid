@@ -1570,6 +1570,15 @@ class PlotManager(QObject):
         self._draw_markers()
         self.markers_changed.emit()
 
+    def clear_markers(self):
+        """Remove all markers and start numbering from 1 again."""
+        if not self.markers:
+            return
+        self.markers = []
+        self._next_marker_number = 1
+        self._draw_markers()
+        self.markers_changed.emit()
+
     def get_markers(self) -> List[Dict[str, Any]]:
         return list(self.markers)
 
