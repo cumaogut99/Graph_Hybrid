@@ -23,6 +23,17 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+def is_mpai_complete(mpai_path) -> bool:
+    """True if an MPAI directory has its setup.xml and every channel's .bin file."""
+    mpai_dir = Path(mpai_path)
+    try:
+        root = ET.parse(mpai_dir / "setup.xml").getroot()
+        return all((mpai_dir / ch.find("BinFile").text).is_file()
+                   for ch in root.find("Channels").findall("Channel"))
+    except (OSError, ET.ParseError, AttributeError, TypeError):
+        return False
+
+
 class MpaiDirectoryReader:
     """
     High-Performance Reader for MPAI Directory Format.

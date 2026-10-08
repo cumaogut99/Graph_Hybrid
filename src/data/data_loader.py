@@ -15,6 +15,7 @@ from PyQt5.QtCore import QObject, pyqtSignal as Signal
 
 from src.data.csv_to_mpai_converter import CsvToMpaiConverter
 from src.data.excel_to_csv import is_excel_file, excel_to_temp_csv, remove_temp_csv
+from src.data.data_reader import is_mpai_complete
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,12 @@ class DataLoader(QObject):
                     csv_size = os.path.getsize(source_path)
                     # MPAI should be at least 5% of CSV size (compression)
                     # If too small, it's likely corrupted
-                    if mpai_size > csv_size * 0.05:
+                    if mpai_size > csv_size * 0.05 and not is_mpai_complete(mpai_path):
+                        # A cleanup interrupted by a locked file leaves some
+                        # channel files deleted; using it would plot empty data
+                        logger.warning(f"Cached MPAI is incomplete, regenerating: {mpai_path}")
+                        should_regenerate = True
+                    elif mpai_size > csv_size * 0.05:
                         # Check if a settings marker file exists and matches current settings
                         # Marker (JSON): settings key + conversion results the
                         # UI needs again when loading from cache
@@ -337,7 +343,7 @@ class DataLoader(QObject):
                     if os.path.isdir(mpai_path) else
                     os.path.getmtime(mpai_path)
                 )
-                if mpai_mtime > os.path.getmtime(file_path):
+                if mpai_mtime > os.path.getmtime(file_path) and is_mpai_complete(mpai_path):
                     logger.info("NI önbellek kullanılıyor: %s", mpai_path)
                     self.progress.emit("Önbellekten yükleniyor...", 10)
                     return self._load_mpai(mpai_path)

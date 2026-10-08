@@ -922,6 +922,10 @@ class PlotManager(QObject):
             return None
         
         plot_widget = self.plot_widgets[plot_index]
+
+        if len(x_data) == 0 or len(y_data) == 0:
+            logger.warning(f"Signal '{name}' has no data, not plotted")
+            return None
         
         # Store original data range for proper view reset
         t1 = time.time()

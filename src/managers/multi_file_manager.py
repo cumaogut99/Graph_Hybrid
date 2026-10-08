@@ -421,6 +421,17 @@ class MultiFileManager(QObject):
         """
         settings = file_data.get('settings', {})
 
+        # Delete the .settings marker first: it is what makes the cache count
+        # as valid, so a deletion that stops halfway (locked file, app closed)
+        # must not leave a partly deleted MPAI that is loaded next time
+        temp_settings = settings.get('_temp_settings_path')
+        if temp_settings and os.path.exists(temp_settings):
+            try:
+                os.remove(temp_settings)
+                logger.info(f"[CLEANUP] Deleted temp settings: {temp_settings}")
+            except Exception as e:
+                logger.warning(f"[CLEANUP] Failed to delete temp settings: {e}")
+
         # Delete .mpai directory
         temp_mpai = settings.get('_temp_mpai_path')
         if temp_mpai and os.path.exists(temp_mpai):
@@ -440,16 +451,7 @@ class MultiFileManager(QObject):
                 logger.warning(f"[CLEANUP] Failed to delete temp MPAI: {e}")
             except Exception as e:
                 logger.warning(f"[CLEANUP] Failed to delete temp MPAI: {e}")
-        
-        # Delete .settings file
-        temp_settings = settings.get('_temp_settings_path')
-        if temp_settings and os.path.exists(temp_settings):
-            try:
-                os.remove(temp_settings)
-                logger.info(f"[CLEANUP] Deleted temp settings: {temp_settings}")
-            except Exception as e:
-                logger.warning(f"[CLEANUP] Failed to delete temp settings: {e}")
-        
+
         if on_done:
             on_done()
 
