@@ -140,12 +140,14 @@ class CorrelationsPanelManager:
         self.target_parameter = None
         self.max_results = 5
         self.current_correlations = {}
+        self.range_text = ""  # Data range of the current results
         
         # UI components
         self.active_checkbox = None
         self.target_button = None
         self.results_spinbox = None
         self.results_list = None
+        self.range_label = None
         self.progress_bar = None
         self.available_parameters = []
         
@@ -391,7 +393,7 @@ class CorrelationsPanelManager:
         # Manual calculate button
         calc_btn = QPushButton("Calculate")
         calc_btn.setStyleSheet("padding: 3px 10px; font-size: 11px;")
-        calc_btn.clicked.connect(self._calculate_correlations)
+        calc_btn.clicked.connect(lambda: self._calculate_correlations(force=True))
         config_layout.addWidget(calc_btn)
         
         parent_layout.addWidget(config_group)
@@ -405,6 +407,12 @@ class CorrelationsPanelManager:
         info_label = QLabel("💡 Results show correlation with target parameter (-1 to +1)")
         info_label.setStyleSheet("font-size: 10px; color: #888888; font-style: italic;")
         results_layout.addWidget(info_label)
+
+        # Data range (cursor range) the results were calculated on
+        self.range_label = QLabel()
+        self.range_label.setStyleSheet("font-size: 11px; color: #b0bec5;")
+        self.range_label.setVisible(False)
+        results_layout.addWidget(self.range_label)
         
         # Results list - will expand to fill available space
         self.results_list = QListWidget()
@@ -430,6 +438,10 @@ class CorrelationsPanelManager:
         if target_name and target_name != self.target_parameter:
             self.target_parameter = target_name
             self.target_button.setText(target_name)
+            # Results of the previous target must not be shown under this one
+            self.current_correlations = {}
+            self.range_text = ""
+            self._update_results_display()
             logger.debug(f"Target parameter changed to: {target_name}")
             if self.is_analysis_active:
                 self._trigger_calculation()
@@ -450,156 +462,119 @@ class CorrelationsPanelManager:
             self.update_timer.stop()
             self.update_timer.start(500)  # 500ms delay to avoid too frequent updates
             
-    def _calculate_correlations(self):
-        """Calculate correlations between target and other parameters using cursor range."""
-        if not self.is_analysis_active or not self.target_parameter:
+    def _calculate_correlations(self, force: bool = False):
+        """
+        Pearson correlation of the target with every other signal, on the raw
+        (full-resolution) data between the cursors, or all data without cursors.
+
+        force: calculate even when real-time analysis is off (Calculate button).
+        """
+        if not self.target_parameter or not (self.is_analysis_active or force):
             return
-            
+
         logger.debug(f"Calculating correlations for target: {self.target_parameter}")
-        
+
         try:
             self.progress_bar.setVisible(True)
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(10)
 
-            if not hasattr(self.parent, 'signal_processor') or not hasattr(self.parent.signal_processor, 'get_all_signals'):
+            signal_processor = getattr(self.parent, 'signal_processor', None)
+            if signal_processor is None or not hasattr(signal_processor, 'get_raw_range'):
                 logger.warning("Signal processor not found on parent widget.")
                 self.current_correlations = {}
+                self.range_text = ""
                 self._update_results_display()
                 return
 
-            all_signals = self.parent.signal_processor.get_all_signals()
-            if not all_signals or self.target_parameter not in all_signals:
+            start_pos, end_pos = self._cursor_range()
+            target = signal_processor.get_raw_range(self.target_parameter, start_pos, end_pos)
+            if target is None:
                 logger.warning(f"Target parameter '{self.target_parameter}' not found in signals.")
                 self.current_correlations = {}
+                self.range_text = ""
                 self._update_results_display()
                 return
+            target_x, target_y = target
+            self.range_text = self._format_range(start_pos, end_pos, len(target_x))
 
-            # Get cursor positions to determine data range
-            cursor_manager = getattr(self.parent, 'cursor_manager', None)
-            x_data_full = all_signals[self.target_parameter]['x_data']
-            target_data_full = all_signals[self.target_parameter]['y_data']
-            
-            # Ensure data is numpy array
-            if not isinstance(x_data_full, np.ndarray):
-                x_data_full = np.array(x_data_full)
-            if not isinstance(target_data_full, np.ndarray):
-                target_data_full = np.array(target_data_full)
-            
-            # Get cursor range if available
-            start_idx = 0
-            end_idx = len(target_data_full)
-            
-            if cursor_manager and hasattr(cursor_manager, 'can_zoom_to_cursors') and cursor_manager.can_zoom_to_cursors():
-                try:
-                    # Get cursor positions
-                    pos1 = cursor_manager.dual_cursors_1[0].value()
-                    pos2 = cursor_manager.dual_cursors_2[0].value()
-                    
-                    # Ensure proper order
-                    start_pos = min(pos1, pos2)
-                    end_pos = max(pos1, pos2)
-                    
-                    # Find indices for cursor range
-                    start_idx = np.searchsorted(x_data_full, start_pos, side='left')
-                    end_idx = np.searchsorted(x_data_full, end_pos, side='right')
-                    
-                    # Ensure valid indices
-                    start_idx = max(0, start_idx)
-                    end_idx = min(len(target_data_full), end_idx)
-                    
-                    logger.debug(f"Using cursor range: {start_pos:.3f} to {end_pos:.3f} (indices {start_idx}:{end_idx})")
-                except Exception as e:
-                    logger.warning(f"Failed to get cursor range, using full data: {e}")
-            else:
-                logger.debug("Cursors not available, using full data range")
-            
-            # Slice target data to cursor range
-            target_data = target_data_full[start_idx:end_idx]
+            other_names = [name for name in signal_processor.signal_data if name != self.target_parameter]
             correlations = {}
 
-            total_signals = len(all_signals) - 1
-            processed_signals = 0
-
-            for name, signal_data in all_signals.items():
-                if name == self.target_parameter:
-                    continue
-                
+            for processed, name in enumerate(other_names, 1):
                 try:
-                    other_data_full = signal_data['y_data']
-                    if not isinstance(other_data_full, np.ndarray):
-                        other_data_full = np.array(other_data_full)
-                    
-                    # Slice other data to the same cursor range
-                    other_data = other_data_full[start_idx:end_idx]
-
-                    # ROBUST: Ensure data lengths are equal for correlation calculation
-                    min_len = min(len(target_data), len(other_data))
-                    
-                    if min_len < 2:
-                        # Correlation requires at least 2 points
-                        logger.debug(f"Skipping '{name}': insufficient data points ({min_len})")
-                        continue
-                    
-                    # Veriyi eşitle
-                    target_slice = target_data[:min_len]
-                    other_slice = other_data[:min_len]
-                    
-                    # ROBUST: None, NaN, Inf değerleri temizle
-                    # Create mask for valid values
-                    mask = (
-                        ~np.isnan(target_slice) & 
-                        ~np.isnan(other_slice) & 
-                        ~np.isinf(target_slice) & 
-                        ~np.isinf(other_slice) &
-                        (target_slice != None) &
-                        (other_slice != None)
-                    )
-                    
-                    valid_target = target_slice[mask]
-                    valid_other = other_slice[mask]
-                    
-                    # En az 2 valid değer gerekli
-                    if len(valid_target) < 2:
-                        logger.debug(f"Skipping '{name}': insufficient valid data after cleaning ({len(valid_target)})")
-                        continue
-                    
-                    # Standart sapma kontrolü - sabit değerler için correlation tanımsız
-                    if np.std(valid_target) == 0 or np.std(valid_other) == 0:
-                        logger.debug(f"Skipping '{name}': zero variance (constant values)")
-                        continue
-                    
-                    # Korelasyon hesapla
-                    corr_matrix = np.corrcoef(valid_target, valid_other)
-                    
-                    # corrcoef returns a 2x2 matrix, the value is at [0, 1]
-                    correlation = corr_matrix[0, 1]
-                    
-                    # Final validation
-                    if not np.isnan(correlation) and not np.isinf(correlation):
-                        correlations[name] = correlation
-                    else:
-                        logger.debug(f"Skipping '{name}': invalid correlation value ({correlation})")
-                        
+                    other = signal_processor.get_raw_range(name, start_pos, end_pos)
+                    if other is not None:
+                        correlation = self._pearson(target_x, target_y, *other)
+                        if correlation is not None:
+                            correlations[name] = correlation
+                        else:
+                            logger.debug(f"Skipping '{name}': not enough varying data in range")
                 except Exception as e:
                     logger.warning(f"Correlation calculation failed for '{name}': {e}")
-                    continue
-                
-                processed_signals += 1
-                self.progress_bar.setValue(10 + int(90 * (processed_signals / total_signals)))
+                self.progress_bar.setValue(10 + int(90 * processed / len(other_names)))
 
             self.current_correlations = correlations
             self._update_results_display()
-            
+
             # Hide progress bar after a short delay
             QTimer.singleShot(1000, lambda: self.progress_bar.setVisible(False))
-            
+
         except Exception as e:
             logger.error(f"Error calculating correlations: {e}", exc_info=True)
             self.progress_bar.setVisible(False)
-            
+
+    def _cursor_range(self) -> Tuple[Optional[float], Optional[float]]:
+        """(start, end) between the two cursors, or (None, None): all data."""
+        cursor_manager = getattr(self.parent, 'cursor_manager', None)
+        if cursor_manager and hasattr(cursor_manager, 'can_zoom_to_cursors') and cursor_manager.can_zoom_to_cursors():
+            try:
+                pos1 = cursor_manager.dual_cursors_1[0].value()
+                pos2 = cursor_manager.dual_cursors_2[0].value()
+                return min(pos1, pos2), max(pos1, pos2)
+            except Exception as e:
+                logger.warning(f"Failed to get cursor range, using full data: {e}")
+        return None, None
+
+    def _format_range(self, start: Optional[float], end: Optional[float], sample_count: int) -> str:
+        """'Range: <start> – <end> (<n> samples)' in the time axis' format."""
+        if start is None:
+            return f"Range: all data ({sample_count:,} samples)"
+        container = None
+        if hasattr(self.parent, 'get_active_graph_container'):
+            container = self.parent.get_active_graph_container()
+        if container is not None and hasattr(container.plot_manager, 'format_x_value'):
+            fmt = container.plot_manager.format_x_value
+        else:
+            fmt = lambda x: f"{x:.6g}"
+        return f"Range: {fmt(start)} – {fmt(end)} ({sample_count:,} samples)"
+
+    @staticmethod
+    def _pearson(x1: np.ndarray, y1: np.ndarray, x2: np.ndarray, y2: np.ndarray) -> Optional[float]:
+        """
+        Correlation of two signals sampled at the same instants. Signals on
+        another time base are interpolated onto the first one's times (only
+        where both have data); None if undefined (< 2 points or constant).
+        """
+        if len(x1) == len(x2) and np.array_equal(x1, x2):
+            a, b = y1, y2
+        else:
+            if len(x2) < 2:
+                return None
+            overlap = (x1 >= x2[0]) & (x1 <= x2[-1])
+            a, b = y1[overlap], np.interp(x1[overlap], x2, y2)
+
+        valid = np.isfinite(a) & np.isfinite(b)
+        a, b = a[valid], b[valid]
+        if len(a) < 2 or np.std(a) == 0 or np.std(b) == 0:
+            return None
+        correlation = float(np.corrcoef(a, b)[0, 1])
+        return correlation if np.isfinite(correlation) else None
+
     def _update_results_display(self):
         """Update the results list display."""
+        self.range_label.setText(self.range_text)
+        self.range_label.setVisible(bool(self.range_text))
         self.results_list.clear()
         
         if not self.current_correlations:

@@ -101,11 +101,15 @@ class PlotSecondaryAxisHelper:
         """Remove secondary Y-axis from a specific plot."""
         if plot_index not in self.secondary_viewboxes:
             return
+
+        self._clear_items_of_plot(plot_index)
         
         # Remove axis from layout
         if plot_index in self.secondary_axes:
             axis = self.secondary_axes[plot_index]
             try:
+                if plot_index < len(self.plot_manager.plot_widgets):
+                    self.plot_manager.plot_widgets[plot_index].getPlotItem().layout.removeItem(axis)
                 if axis.scene():
                     axis.scene().removeItem(axis)
             except RuntimeError:
@@ -194,6 +198,32 @@ class PlotSecondaryAxisHelper:
             self.signal_axis_assignment[signal_name] = 'left'
             return 'left'
     
+    def clear_secondary_items(self):
+        """Remove the curves drawn on the secondary axes (the axes stay).
+
+        PlotWidget.clear() only clears the main ViewBox, so without this the
+        old curves and their legend rows stayed after every redraw.
+        """
+        for plot_index in list(self.secondary_viewboxes):
+            self._clear_items_of_plot(plot_index)
+        self.signal_axis_assignment.clear()
+
+    def _clear_items_of_plot(self, plot_index: int):
+        """Remove the secondary-axis curves of one plot and their legend rows."""
+        vb = self.secondary_viewboxes.get(plot_index)
+        if vb is None:
+            return
+        legend = None
+        if plot_index < len(self.plot_manager.plot_widgets):
+            legend = self.plot_manager.plot_widgets[plot_index].getPlotItem().legend
+        try:
+            for item in list(vb.addedItems):
+                vb.removeItem(item)
+                if legend is not None:
+                    legend.removeItem(item)
+        except RuntimeError:
+            pass  # ViewBox already deleted
+
     def clear_secondary_axes(self):
         """Clear all secondary axis references."""
         self.secondary_viewboxes.clear()

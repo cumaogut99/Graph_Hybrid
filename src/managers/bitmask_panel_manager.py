@@ -1,6 +1,9 @@
 import os
 import re
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QComboBox, QTextEdit, QGroupBox
+from PyQt5.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QFileDialog, QLabel,
+    QComboBox, QTextEdit, QGroupBox, QScrollArea, QSpinBox, QFrame
+)
 from PyQt5.QtCore import QObject
 import numpy as np
 import logging
@@ -31,7 +34,7 @@ class BitmaskPanelManager(QObject):
         self.widget = QWidget()
         self.signal_processor = signal_processor
         self.theme_manager = theme_manager
-        self.graph_sections = []
+        self.analysis_sections = []
         self._bitmask_data = {}
         self._filter_active = False
         self._last_time = None
@@ -44,18 +47,45 @@ class BitmaskPanelManager(QObject):
     def update_theme(self):
         """Apply the current theme to the panel."""
         panel_stylesheet = self.theme_manager.get_widget_stylesheet('panel')
-        self.widget.setStyleSheet(panel_stylesheet)
+        colors = self.theme_manager.get_theme_colors()
+        self.widget.setStyleSheet(panel_stylesheet + f"""
+            QScrollArea#bitmaskSectionsScroll {{
+                background-color: {colors['surface']};
+                border: none;
+            }}
+            QWidget#bitmaskSectionsContainer {{
+                background-color: {colors['surface']};
+                border: none;
+            }}
+            QTextEdit#bitmaskResult {{
+                background-color: {colors['background']};
+                border-color: {colors['border']};
+                padding: 6px;
+            }}
+            QSpinBox {{
+                min-width: 52px;
+                max-width: 70px;
+            }}
+        """)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self.widget)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
-        self.load_excel_button = QPushButton("Load Bitmask Excel File")
+        definitions_group = QGroupBox("Bitmask Definitions")
+        definitions_layout = QVBoxLayout(definitions_group)
+        definitions_layout.setContentsMargins(10, 12, 10, 10)
+        definitions_layout.setSpacing(8)
+
+        self.load_excel_button = QPushButton("Load Excel Definition File")
         self.load_excel_button.clicked.connect(self._load_excel_file)
-        layout.addWidget(self.load_excel_button)
+        definitions_layout.addWidget(self.load_excel_button)
 
-        self.status_label = QLabel("Please load an Excel file.")
+        self.status_label = QLabel("Load a definition file to begin.")
         self.status_label.setWordWrap(True)
-        layout.addWidget(self.status_label)
+        definitions_layout.addWidget(self.status_label)
+        layout.addWidget(definitions_group)
 
         self.filter_notice = QLabel(FILTER_NOTICE)
         self.filter_notice.setWordWrap(True)
@@ -65,11 +95,31 @@ class BitmaskPanelManager(QObject):
         self.filter_notice.setVisible(False)
         layout.addWidget(self.filter_notice)
 
-        # Graph-specific sections will be added here dynamically
-        self.graphs_layout = QVBoxLayout()
-        layout.addLayout(self.graphs_layout)
+        controls_layout = QHBoxLayout()
+        controls_layout.setContentsMargins(2, 0, 2, 0)
+        controls_layout.addWidget(QLabel("Analysis slots"))
+        self.section_count_spin = QSpinBox()
+        self.section_count_spin.setRange(1, 20)
+        self.section_count_spin.setValue(1)
+        self.section_count_spin.setToolTip("Number of independent bitmask analyses to display")
+        controls_layout.addWidget(self.section_count_spin)
+        controls_layout.addStretch()
+        layout.addLayout(controls_layout)
 
-        layout.addStretch()
+        self.sections_scroll = QScrollArea()
+        self.sections_scroll.setObjectName("bitmaskSectionsScroll")
+        self.sections_scroll.setWidgetResizable(True)
+        self.sections_scroll.setFrameShape(QFrame.NoFrame)
+        self.sections_container = QWidget()
+        self.sections_container.setObjectName("bitmaskSectionsContainer")
+        self.sections_layout = QVBoxLayout(self.sections_container)
+        self.sections_layout.setContentsMargins(0, 0, 0, 0)
+        self.sections_layout.setSpacing(8)
+        self.sections_scroll.setWidget(self.sections_container)
+        layout.addWidget(self.sections_scroll, 1)
+
+        self.section_count_spin.valueChanged.connect(self.set_section_count)
+        self.set_section_count(self.section_count_spin.value())
 
     def _load_excel_file(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -116,28 +166,36 @@ class BitmaskPanelManager(QObject):
             self._bitmask_data = {}
             self.update_all_comboboxes()
 
-    def update_graph_sections(self, num_graphs):
-        # Clear existing sections
-        for section in self.graph_sections:
-            section['widget'].setParent(None)
-        self.graph_sections = []
+    def set_section_count(self, count: int):
+        """Set the user-defined number of independent bitmask analysis slots."""
+        count = max(self.section_count_spin.minimum(), min(int(count), self.section_count_spin.maximum()))
+        if self.section_count_spin.value() != count:
+            self.section_count_spin.blockSignals(True)
+            self.section_count_spin.setValue(count)
+            self.section_count_spin.blockSignals(False)
 
-        # Create a new section for each graph
-        for i in range(num_graphs):
-            graph_section_widget, combo, result_display = self._create_graph_section(i + 1)
-            self.graphs_layout.addWidget(graph_section_widget)
-            self.graph_sections.append({
-                "widget": graph_section_widget,
+        while len(self.analysis_sections) < count:
+            section_number = len(self.analysis_sections) + 1
+            section_widget, combo, result_display = self._create_analysis_section(section_number)
+            self.sections_layout.addWidget(section_widget)
+            self.analysis_sections.append({
+                "widget": section_widget,
                 "combo": combo,
                 "result_display": result_display
             })
+
+        while len(self.analysis_sections) > count:
+            section = self.analysis_sections.pop()
+            self.sections_layout.removeWidget(section['widget'])
+            section['widget'].deleteLater()
+
         self.update_all_comboboxes()
         self._refresh()
 
     def update_all_comboboxes(self):
         """Update all parameter selection comboboxes with loaded sheet names."""
-        parameter_names = [""] + sorted(self._bitmask_data.keys())
-        for section in self.graph_sections:
+        parameter_names = sorted(self._bitmask_data.keys())
+        for section in self.analysis_sections:
             combo = section['combo']
             current_selection = combo.currentText()
             combo.blockSignals(True)
@@ -145,22 +203,27 @@ class BitmaskPanelManager(QObject):
             combo.addItems(parameter_names)
             if current_selection in parameter_names:
                 combo.setCurrentText(current_selection)
+            else:
+                combo.setCurrentIndex(-1)
             combo.blockSignals(False)
 
-    def _create_graph_section(self, graph_number):
-        section_widget = QGroupBox(f"Graph {graph_number} Analysis")
+    def _create_analysis_section(self, section_number):
+        section_widget = QGroupBox(f"Bitmask {section_number}")
         section_layout = QVBoxLayout(section_widget)
+        section_layout.setContentsMargins(10, 12, 10, 10)
+        section_layout.setSpacing(7)
 
-        param_label = QLabel("Select Parameter:")
         param_combo = QComboBox()
+        param_combo.setPlaceholderText("Choose a parameter")
+        param_combo.setToolTip("Select the signal whose bits will be decoded")
         param_combo.currentTextChanged.connect(lambda _text: self._refresh())
 
         result_display = QTextEdit()
+        result_display.setObjectName("bitmaskResult")
         result_display.setReadOnly(True)
-        result_display.setText("Move cursor over graph to see bitmask details.")
-        result_display.setFixedHeight(100)
+        result_display.setText("Choose a parameter, then move Cursor 1.")
+        result_display.setFixedHeight(92)
 
-        section_layout.addWidget(param_label)
         section_layout.addWidget(param_combo)
         section_layout.addWidget(result_display)
 
@@ -178,7 +241,7 @@ class BitmaskPanelManager(QObject):
     def _refresh(self):
         """Re-evaluate the sections at the last known cursor time."""
         if self._filter_active:
-            for section in self.graph_sections:
+            for section in self.analysis_sections:
                 section['result_display'].setText("Hidden: range filter is active.")
         elif self._last_time is not None:
             self._update_sections(self._last_time)
@@ -192,7 +255,7 @@ class BitmaskPanelManager(QObject):
         self._update_sections(self._last_time)
 
     def _update_sections(self, time_pos: float):
-        for section in self.graph_sections:
+        for section in self.analysis_sections:
             param_name = section['combo'].currentText()
             result_display = section['result_display']
 

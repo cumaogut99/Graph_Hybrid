@@ -48,6 +48,9 @@ try:
     # Add pandas and numpy data files
     datas += collect_data_files('polars')
     datas += collect_data_files('numpy')
+    # Report writers load their default templates (default.pptx / default.docx)
+    datas += collect_data_files('pptx')
+    datas += collect_data_files('docx')
     
     # Add matplotlib data files (e.g., fonts, styles)
 except:
@@ -63,6 +66,8 @@ try:
     hiddenimports += collect_submodules('matplotlib')
     hiddenimports += collect_submodules('pyqtgraph')
     hiddenimports += collect_submodules('scipy')
+    hiddenimports += collect_submodules('pptx')
+    hiddenimports += collect_submodules('docx')
     
     # Add specific hidden imports that might be missed
     hiddenimports += [
@@ -83,6 +88,7 @@ hiddenimports += [
     'PyQt5.QtGui', 
     'PyQt5.QtWidgets',
     'matplotlib.backends.backend_qt5agg',
+    'matplotlib.backends.backend_agg',  # report charts
     'pandas._libs.tslibs.base',
     'pandas._libs.tslibs.nattype',
     'pandas._libs.tslibs.np_datetime',

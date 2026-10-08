@@ -61,6 +61,7 @@ class SignalProcessor(QObject):
         
         # Processing parameters
         self.normalization_method = "peak"  # peak, rms, minmax
+        self.normalize_all = False  # Normalize every signal (display only)
         self.statistics_window_size = 1000  # Rolling statistics window
         
         # PERFORMANCE: Enhanced statistics cache
@@ -615,7 +616,7 @@ class SignalProcessor(QObject):
                         cached = self._downsampled_cache[name]
                         result[name] = {
                             'x_data': cached['x_data'],
-                            'y_data': cached['y_data'],
+                            'y_data': self.normalize_for_display(name, cached['y_data']),
                             'metadata': {
                                 **data['metadata'],
                                 'downsampled': True,
@@ -645,7 +646,7 @@ class SignalProcessor(QObject):
                         
                         result[name] = {
                             'x_data': downsampled['x_data'],
-                            'y_data': downsampled['y_data'],
+                            'y_data': self.normalize_for_display(name, downsampled['y_data']),
                             'metadata': {
                                 **data['metadata'],
                                 'downsampled': True,
@@ -664,6 +665,8 @@ class SignalProcessor(QObject):
                 else:
                     # Legacy path: CSV data (already in memory)
                     result[name] = data.copy()
+                    if 'y_data' in data:
+                        result[name]['y_data'] = self.normalize_for_display(name, data['y_data'])
             
             return result
     
@@ -937,6 +940,7 @@ class SignalProcessor(QObject):
                     # Serve this in-memory data instead of the MPAI file until
                     # restore_original_data() (see _is_file_backed)
                     self.signal_data[signal_name]['filtered'] = True
+                    self.signal_data[signal_name].pop('_norm_params', None)
 
                     # Clear related caches since data changed
                     self._clear_cache(signal_name)
@@ -967,92 +971,117 @@ class SignalProcessor(QObject):
             # File-backed signals read from the MPAI file again
             for info in self.signal_data.values():
                 info.pop('filtered', None)
+                info.pop('_norm_params', None)
             self._downsampled_cache.clear()
             self._cursor_value_cache.clear()
             
             logger.info("Restored original data for all signals")
     
-    def apply_normalization(self, signal_names: Optional[List[str]] = None, 
-                          method: str = "peak") -> Dict[str, np.ndarray]:
+    def apply_normalization(self, signal_names: Optional[List[str]] = None,
+                          method: str = "peak") -> List[str]:
         """
-        Apply normalization to specified signals or all signals.
-        
+        Show signals normalized.
+
+        Display only: the stored data is not changed (memory-mapped MPAI
+        signals have no in-memory data to change), so statistics and cursor
+        values keep the real values. get_all_signals() and
+        normalize_for_display() return the normalized values.
+
         Args:
-            signal_names: List of signals to normalize (None for all)
+            signal_names: Signals to normalize; None normalizes every signal,
+                including ones loaded or calculated later
             method: Normalization method ('peak', 'rms', 'minmax', 'zscore')
-            
+
         Returns:
-            Dict of signal_name -> normalized_y_data
+            Names of the normalized signals
         """
-        self.processing_started.emit()
-        
-        try:
-            with QMutexLocker(self.mutex):
-                if signal_names is None:
-                    signal_names = list(self.signal_data.keys())
-                
-                normalized_results = {}
-                
-                for name in signal_names:
-                    if name not in self.signal_data:
-                        continue
-                    
-                    y_data = self.signal_data[name]['y_data']
-                    
-                    # Check cache first
-                    cache_key = f"{name}_{method}_{hash(y_data.tobytes())}"
-                    if cache_key in self.normalized_data:
-                        normalized_y = self.normalized_data[cache_key]
-                    else:
-                        # Perform normalization
-                        normalized_y = self._normalize_array(y_data, method)
-                        self.normalized_data[cache_key] = normalized_y
-                    
-                    # Update signal data
-                    self.signal_data[name]['y_data'] = normalized_y
-                    self.signal_data[name]['normalized'] = True
-                    self.signal_data[name]['normalization_method'] = method
-                    
-                    normalized_results[name] = normalized_y
-                    
-                    logger.debug(f"Normalized signal '{name}' using {method} method")
-                
-                return normalized_results
-                
-        finally:
-            self.processing_finished.emit()
-    
-    def remove_normalization(self, signal_names: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
+        with QMutexLocker(self.mutex):
+            self.normalization_method = method
+            if signal_names is None:
+                self.normalize_all = True
+                signal_names = list(self.signal_data.keys())
+            for name in signal_names:
+                info = self.signal_data.get(name)
+                if info is None:
+                    continue
+                info['normalized'] = True
+                info['normalization_method'] = method
+                info.pop('_norm_params', None)
+            return [name for name in signal_names if name in self.signal_data]
+
+    def remove_normalization(self, signal_names: Optional[List[str]] = None) -> List[str]:
         """
-        Remove normalization and restore original data.
-        
+        Show the real values again.
+
         Args:
-            signal_names: List of signals to denormalize (None for all)
-            
+            signal_names: Signals to denormalize (None for all)
+
         Returns:
-            Dict of signal_name -> original_y_data
+            Names of the denormalized signals
         """
         with QMutexLocker(self.mutex):
             if signal_names is None:
+                self.normalize_all = False
                 signal_names = list(self.signal_data.keys())
-            
-            restored_results = {}
-            
             for name in signal_names:
-                if name not in self.signal_data:
-                    continue
-                
-                # Restore original data
-                original_y = self.signal_data[name]['original_y']
-                self.signal_data[name]['y_data'] = original_y.copy()
-                self.signal_data[name]['normalized'] = False
-                
-                restored_results[name] = original_y
-                
-                logger.debug(f"Restored original data for signal '{name}'")
-            
-            return restored_results
-    
+                info = self.signal_data.get(name)
+                if info is not None:
+                    info['normalized'] = False
+            return [name for name in signal_names if name in self.signal_data]
+
+    def is_normalized(self, signal_name: str) -> bool:
+        """True if the signal is shown normalized."""
+        info = self.signal_data.get(signal_name)
+        if info is None:
+            return False
+        return info.get('normalized', self.normalize_all)
+
+    def normalize_for_display(self, signal_name: str, y_data: np.ndarray) -> np.ndarray:
+        """
+        y_data (any part of the signal, e.g. a zoomed LOD slice) normalized
+        with the signal's whole-data statistics; unchanged if not normalized.
+        """
+        with QMutexLocker(self.mutex):
+            if not self.is_normalized(signal_name):
+                return y_data
+            offset, scale = self._normalization_params(signal_name)
+            return (np.asarray(y_data, dtype=np.float64) - offset) / scale
+
+    def _normalization_params(self, signal_name: str) -> Tuple[float, float]:
+        """(offset, scale) of the signal's normalization, cached (mutex held)."""
+        info = self.signal_data[signal_name]
+        params = info.get('_norm_params')
+        if params is None:
+            if self._is_file_backed(info):
+                # Min/max-bucket view of the full file: keeps the extremes
+                view = self._downsampled_cache.get(signal_name) or                     self._get_downsampled_view_internal(signal_name, target_points=4000)
+                reference = view['y_data'] if view else np.array([])
+            else:
+                reference = info.get('y_data', np.array([]))
+            method = info.get('normalization_method', self.normalization_method)
+            params = self._normalization_offset_scale(np.asarray(reference, dtype=np.float64), method)
+            info['_norm_params'] = params
+        return params
+
+    def _normalization_offset_scale(self, data: np.ndarray, method: str) -> Tuple[float, float]:
+        """(offset, scale) so that (data - offset) / scale is the normalized data."""
+        data = data[np.isfinite(data)] if len(data) else data
+        if len(data) == 0:
+            return 0.0, 1.0
+        if method == "peak":
+            offset, scale = 0.0, float(np.max(np.abs(data)))
+        elif method == "rms":
+            offset, scale = 0.0, float(np.sqrt(np.mean(data ** 2)))
+        elif method == "minmax":
+            offset = float(np.min(data))
+            scale = float(np.max(data)) - offset
+        elif method == "zscore":
+            offset, scale = float(np.mean(data)), float(np.std(data))
+        else:
+            logger.warning(f"Unknown normalization method: {method}")
+            offset, scale = 0.0, 1.0
+        return offset, (scale if scale != 0 else 1.0)
+
     def _normalize_array(self, data: np.ndarray, method: str) -> np.ndarray:
         """
         Normalize array using specified method with optimized algorithms.
@@ -1761,6 +1790,73 @@ class SignalProcessor(QObject):
             logger.debug(f"Using cached preview data: {signal_name} at {time_point} = {result}")
             return result
     
+    def get_raw_range(self, signal_name: str, start_time: Optional[float] = None,
+                      end_time: Optional[float] = None) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+        """
+        Full-resolution (x, y) of a signal in [start_time, end_time] (None: no
+        limit), with the real values: not downsampled, not normalized.
+
+        For analysis such as correlation; get_all_signals() returns a
+        downsampled min/max view for drawing, which must not be used for that.
+        """
+        with QMutexLocker(self.mutex):
+            info = self.signal_data.get(signal_name)
+            if info is None:
+                return None
+
+            if self._is_file_backed(info) or (info.get('_is_calc_param') and '_reader' in info):
+                if info.get('_is_calc_param'):
+                    reader, col_name, time_col = info['_reader'], signal_name, 'time'
+                else:
+                    reader = info.get('mpai_reader')
+                    col_name = info.get('column_name', signal_name)
+                    time_col = info.get('time_column', 'time')
+                if reader is None or getattr(reader, 'closed', False):
+                    return None
+                row_count = reader.get_row_count()
+                start_row = 0 if start_time is None else \
+                    self._time_to_row(reader, time_col, row_count, start_time, 'left')
+                end_row = row_count if end_time is None else \
+                    self._time_to_row(reader, time_col, row_count, end_time, 'right')
+                if end_row <= start_row:
+                    return np.array([]), np.array([])
+                count = end_row - start_row
+                x = np.asarray(reader.load_column_slice(time_col, start_row, count), dtype=np.float64)
+                y = np.asarray(reader.load_column_slice(col_name, start_row, count), dtype=np.float64)
+                n = min(len(x), len(y))
+                return x[:n], y[:n]
+
+            x = info.get('x_data')
+            y = info.get('y_data')
+            if x is None or y is None:
+                return None
+            x = np.asarray(x, dtype=np.float64)
+            y = np.asarray(y, dtype=np.float64)
+            n = min(len(x), len(y))
+            x, y = x[:n], y[:n]
+            mask = np.ones(n, dtype=bool)
+            if start_time is not None:
+                mask &= x >= start_time
+            if end_time is not None:
+                mask &= x <= end_time
+            return x[mask], y[mask]
+
+    @staticmethod
+    def _time_to_row(reader, time_col: str, row_count: int, t: float, side: str) -> int:
+        """
+        Binary search on the (ascending) time column without loading it:
+        first row with time >= t ('left') or > t ('right').
+        """
+        lo, hi = 0, row_count
+        while lo < hi:
+            mid = (lo + hi) // 2
+            value = float(reader.load_column_slice(time_col, mid, 1)[0])
+            if value < t or (side == 'right' and value == t):
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo
+
     def get_signal_range(self, signal_name: str, start_time: float, end_time: float) -> Optional[Dict]:
         """
         Get signal data within time range.

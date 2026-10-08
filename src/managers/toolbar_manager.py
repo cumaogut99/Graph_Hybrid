@@ -41,6 +41,7 @@ class ToolbarManager(QObject):
     correlations_toggled = Signal()
     bitmask_toggled = Signal()
     filters_requested = Signal()  # open the range filter (Advanced Settings) dialog
+    report_requested = Signal()  # open the report window
     graph_count_changed = Signal(int)
     tab_count_changed = Signal(int)
     file_open_requested = Signal()
@@ -109,6 +110,7 @@ class ToolbarManager(QObject):
         self.graph_count_spinbox = QSpinBox()
         self.graph_count_spinbox.setRange(1, 10)
         self.graph_count_spinbox.setValue(1)
+        self.graph_count_spinbox.setAlignment(Qt.AlignCenter)
         self.graph_count_spinbox.setToolTip("Number of graphs to display in the current tab")
         self.toolbar.addWidget(self.graph_count_spinbox)
 
@@ -131,6 +133,11 @@ class ToolbarManager(QObject):
         self.bitmask_btn = self._make_button("Bitmask", "Open bitmask analysis panel", checked=False)
         self.bitmask_btn.clicked.connect(self.bitmask_toggled.emit)
         self.toolbar.addWidget(self.bitmask_btn)
+
+        # Report window (PowerPoint / Word report of the active file)
+        self.report_btn = self._make_button("Report", "Create a PowerPoint or Word report from the active file")
+        self.report_btn.clicked.connect(self.report_requested.emit)
+        self.toolbar.addWidget(self.report_btn)
 
     def _make_button(self, text: str, tooltip: str, checked: Optional[bool] = None) -> QToolButton:
         """Create a toolbar button; checked=None makes a plain (non-toggle) button."""
@@ -193,8 +200,8 @@ class ToolbarManager(QObject):
             QToolBar {{
                 background: transparent;
                 border: none;
-                spacing: 5px;
-                padding: 3px 8px;
+                spacing: 4px;
+                padding: 3px 6px;
             }}
             QToolBar::separator {{
                 width: 0px;
@@ -204,7 +211,7 @@ class ToolbarManager(QObject):
                 background: {button_bg};
                 border: 1px solid {accent};
                 border-radius: 6px;
-                padding: 3px 12px;
+                padding: 3px 8px;
                 margin: 0px;
                 color: {button_text};
                 font-size: 13px;
@@ -260,32 +267,45 @@ class ToolbarManager(QObject):
                 background: {button_bg};
                 border: 1px solid {accent};
                 border-radius: 6px;
-                padding: 3px 6px;
+                padding: 3px 2px;  /* Qt reserves the -/+ button widths itself */
                 color: {button_text};
                 font-size: 13px;
-                min-width: 40px;
+                min-width: 80px;
                 min-height: 22px;
             }}
             QSpinBox:hover {{
                 border-color: {accent_hover};
             }}
+            /* Stepper layout: [-] value [+], full-height buttons that are easy to hit */
             QSpinBox::up-button, QSpinBox::down-button {{
+                subcontrol-origin: border;
                 background: transparent;
                 border: none;
-                width: 14px;
+                border-radius: 5px;
+                width: 26px;
+                height: 31px;  /* full spinbox height inside the border */
+            }}
+            QSpinBox::up-button {{
+                subcontrol-position: right;
+            }}
+            QSpinBox::down-button {{
+                subcontrol-position: left;
             }}
             QSpinBox::up-button:hover, QSpinBox::down-button:hover {{
                 background: rgba(44, 153, 165, 0.25);
             }}
+            QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {{
+                background: rgba(53, 182, 196, 0.4);
+            }}
             QSpinBox::up-arrow {{
-                image: url({os.path.abspath('icons/arrow-up.svg').replace(os.sep, '/')});
-                width: 9px;
-                height: 9px;
+                image: url({os.path.abspath('icons/spin-plus.svg').replace(os.sep, '/')});
+                width: 13px;
+                height: 13px;
             }}
             QSpinBox::down-arrow {{
-                image: url({os.path.abspath('icons/arrow-down.svg').replace(os.sep, '/')});
-                width: 9px;
-                height: 9px;
+                image: url({os.path.abspath('icons/spin-minus.svg').replace(os.sep, '/')});
+                width: 13px;
+                height: 13px;
             }}
         """)
 

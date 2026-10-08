@@ -18,8 +18,6 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
 from PyQt5.QtGui import QFont
-import pyqtgraph as pg
-import pyqtgraph.exporters
 import polars as pl
 
 if TYPE_CHECKING:
@@ -32,7 +30,6 @@ class SettingsPanelManager(QObject):
     
     # Signals
     theme_changed = Signal(str)
-    export_format_changed = Signal(str)
     
     def __init__(self, parent_widget: "TimeGraphWidget"):
         super().__init__()
@@ -62,7 +59,7 @@ class SettingsPanelManager(QObject):
         # Create settings sections
         self._create_display_settings(main_layout)
         self._create_marker_settings(main_layout)
-        self._create_export_settings(main_layout)
+        self._create_data_export_settings(main_layout)
         
         main_layout.addStretch()
         
@@ -135,26 +132,8 @@ class SettingsPanelManager(QObject):
 
     # Cursor and Performance settings removed - functionality moved to Graph Settings panel
     
-    def _create_export_settings(self, parent_layout):
-        """Create export settings section."""
-        # Plot Export Section
-        plot_group = QGroupBox("📈 Plot Export")
-        plot_layout = QFormLayout(plot_group)
-        plot_layout.setSpacing(8)
-        
-        self.plot_format_combo = QComboBox()
-        self.plot_format_combo.addItems(["PNG", "PDF"])  # SVG removed
-        self.plot_format_combo.setCurrentText("PNG")
-        self.plot_format_combo.currentTextChanged.connect(self.export_format_changed.emit)
-        plot_layout.addRow("Format:", self.plot_format_combo)
-        
-        export_plot_btn = QPushButton("Export Plot")
-        export_plot_btn.clicked.connect(self._export_plot)
-        plot_layout.addRow(export_plot_btn)
-        
-        parent_layout.addWidget(plot_group)
-        
-        # Data Export Section
+    def _create_data_export_settings(self, parent_layout):
+        """Create the cursor-range data export section."""
         data_group = QGroupBox("📊 Data Export")
         data_layout = QFormLayout(data_group)
         data_layout.setSpacing(8)
@@ -169,142 +148,6 @@ class SettingsPanelManager(QObject):
         data_layout.addRow(export_data_btn)
         
         parent_layout.addWidget(data_group)
-    
-    def _export_plot(self):
-        """Export plot to file."""
-        logger.info("Export plot requested")
-        
-        format_type = self.plot_format_combo.currentText().lower()
-        
-        # Get active tab container from parent
-        if hasattr(self.parent, 'tab_widget') and self.parent.tab_widget.count() > 0:
-            if format_type == "png":
-                self._export_png_per_tab()
-            elif format_type == "pdf":
-                self._export_pdf_multi_page()
-        else:
-            logger.warning("No active tabs found for export")
-    
-    def _export_png_per_tab(self):
-        """Export PNG for each tab separately."""
-        from PyQt5.QtWidgets import QFileDialog
-        import os
-        
-        # Get directory to save files
-        directory = QFileDialog.getExistingDirectory(
-            self.parent, 
-            "PNG Export Klasörü Seçin",
-            "",
-            QFileDialog.ShowDirsOnly
-        )
-        
-        if not directory:
-            return
-            
-        tab_count = self.parent.tab_widget.count()
-        for i in range(tab_count):
-            tab_name = self.parent.tab_widget.tabText(i)
-            # Clean tab name for filename
-            safe_name = "".join(c for c in tab_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-            filename = f"{safe_name}_tab_{i+1}.png"
-            filepath = os.path.join(directory, filename)
-            
-            # Switch to tab and export
-            self.parent.tab_widget.setCurrentIndex(i)
-            container = self.parent.graph_containers[i]
-            
-            if hasattr(container, 'plot_manager'):
-                # Pass the entire plot_manager to the export function
-                self._export_tab_plots_as_png(container.plot_manager, filepath)
-                
-        logger.info(f"PNG files exported to {directory}")
-    
-    def _export_pdf_multi_page(self):
-        """Export PDF with each tab as separate page."""
-        from PyQt5.QtWidgets import QFileDialog
-        from PyQt5.QtPrintSupport import QPrinter
-        from PyQt5.QtGui import QPainter
-        from PyQt5.QtCore import QRectF
-        
-        # Get file path
-        filepath, _ = QFileDialog.getSaveFileName(
-            self.parent,
-            "PDF Export Dosyası",
-            "time_graph_export.pdf",
-            "PDF Files (*.pdf)"
-        )
-        
-        if not filepath:
-            return
-            
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
-        printer.setOutputFileName(filepath)
-        printer.setPageSize(QPrinter.A4)
-        
-        painter = QPainter()
-        painter.begin(printer)
-        
-        tab_count = self.parent.tab_widget.count()
-        for i in range(tab_count):
-            if i > 0:
-                printer.newPage()
-                
-            # Switch to tab
-            self.parent.tab_widget.setCurrentIndex(i)
-            container = self.parent.graph_containers[i]
-            
-            if hasattr(container, 'plot_manager') and container.plot_manager.plot_widgets:
-                self._render_tab_to_pdf(container.plot_manager.plot_widgets, painter, printer)
-                
-        painter.end()
-        logger.info(f"PDF exported to {filepath}")
-    
-    def _export_tab_plots_as_png(self, plot_manager, filepath):
-        """Export the entire plot container as a single PNG."""
-        if not plot_manager or not hasattr(plot_manager, 'plot_container'):
-            logger.warning("Plot manager or plot container not found for PNG export")
-            return
-
-        # The widget to export is the container of all plot widgets
-        widget_to_export = plot_manager.plot_container
-        
-        if not widget_to_export:
-            logger.warning("Plot container widget is not available.")
-            return
-
-        # Grab the widget's contents into a QPixmap
-        pixmap = widget_to_export.grab()
-        
-        # Save the pixmap to a file
-        if not pixmap.save(filepath, "PNG"):
-            logger.error(f"Failed to save PNG to {filepath}")
-    
-    def _render_tab_to_pdf(self, plot_widgets, painter, printer):
-        """Render tab plots to PDF page."""
-        if not plot_widgets:
-            return
-            
-        # For now, render the first plot widget
-        # TODO: Layout multiple plot widgets on page
-        plot_widget = plot_widgets[0]
-        
-        # Get the plot widget's pixmap
-        pixmap = plot_widget.grab()
-        
-        # Scale to fit page
-        page_rect = printer.pageRect()
-        scaled_pixmap = pixmap.scaled(
-            page_rect.size().toSize(),
-            Qt.KeepAspectRatio,
-            Qt.SmoothTransformation
-        )
-        
-        # Center on page
-        x = (page_rect.width() - scaled_pixmap.width()) // 2
-        y = (page_rect.height() - scaled_pixmap.height()) // 2
-        
-        painter.drawPixmap(x, y, scaled_pixmap)
     
     def _export_data(self):
         """Export data between two cursors as CSV."""
@@ -492,14 +335,10 @@ class SettingsPanelManager(QObject):
         if 'theme' in settings:
             self.theme_combo.setCurrentText(settings['theme'])
         
-        if 'plot_format' in settings:
-            self.plot_format_combo.setCurrentText(settings['plot_format'])
-    
     def get_current_settings(self) -> Dict[str, Any]:
         """Get current settings values."""
         return {
-            'theme': self.theme_combo.currentText(),
-            'plot_format': self.plot_format_combo.currentText()
+            'theme': self.theme_combo.currentText()
         }
     
     def _apply_theme_styling(self):

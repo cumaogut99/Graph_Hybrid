@@ -2,7 +2,7 @@
 Multi-File Manager for Time Graph Application
 
 Handles multiple CSV file management with isolated settings and state.
-Max 3 files can be open simultaneously for performance.
+Any number of files can be open simultaneously (optional max_files limit).
 """
 
 import gc
@@ -21,7 +21,7 @@ class MultiFileManager(QObject):
     Manages multiple open files with isolated settings and widget states.
     
     Features:
-    - Max 3 files simultaneously
+    - Unlimited files by default (optional max_files limit)
     - Independent widget state per file
     - Automatic state save/restore on tab switching
     - File close with unsaved changes warning
@@ -38,7 +38,7 @@ class MultiFileManager(QObject):
     _CLEANUP_MAX_ATTEMPTS = 5
     _CLEANUP_RETRY_MS = 500
     
-    def __init__(self, parent=None, max_files: int = 3):
+    def __init__(self, parent=None, max_files: Optional[int] = None):
         super().__init__(parent)
         self.parent = parent
         self.max_files = max_files
@@ -50,7 +50,7 @@ class MultiFileManager(QObject):
         # UI widget
         self.file_tab_widget: Optional[QTabWidget] = None
         
-        logger.info(f"MultiFileManager initialized (max files: {max_files})")
+        logger.info(f"MultiFileManager initialized (max files: {max_files or 'unlimited'})")
     
     def create_file_tab_widget(self) -> QTabWidget:
         """Create and return the file tabs widget."""
@@ -139,8 +139,8 @@ class MultiFileManager(QObject):
         return self.file_tab_widget
     
     def can_add_file(self) -> bool:
-        """Check if another file can be added."""
-        return len(self.loaded_files) < self.max_files
+        """Check if another file can be added (max_files=None means no limit)."""
+        return self.max_files is None or len(self.loaded_files) < self.max_files
     
     def is_file_already_open(self, file_path: str) -> int:
         """
@@ -220,7 +220,7 @@ class MultiFileManager(QObject):
         old_index = self.active_file_index
         self.active_file_index = new_index
         
-        logger.info(f"File added: {filename} (index: {new_index}, total: {len(self.loaded_files)}/{self.max_files})")
+        logger.info(f"File added: {filename} (index: {new_index}, total: {len(self.loaded_files)})")
         self.file_loaded.emit(new_index)
         
         # Manuel olarak file_switched emit et (sadece değiştiğinde)
@@ -384,7 +384,7 @@ class MultiFileManager(QObject):
             # Non-active file before the active one: active shifts down
             self.active_file_index -= 1
 
-        logger.info(f"File closed. Remaining: {len(self.loaded_files)}/{self.max_files}")
+        logger.info(f"File closed. Remaining: {len(self.loaded_files)}")
     
     def close_all_files(self):
         """Close all open files."""

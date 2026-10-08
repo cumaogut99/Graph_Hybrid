@@ -91,7 +91,7 @@ class GraphContainer(QWidget):
             'show_grid': True,
             'autoscale': True,
             'show_tooltips': False,
-            'snap_to_data': False,
+            'snap_to_data': True,
             'line_width': 1,
             'x_axis_mouse': True,
             'y_axis_mouse': True

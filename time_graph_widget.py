@@ -175,6 +175,7 @@ class TimeGraphWidget(QWidget):
         """Setup the main UI layout with a QTabWidget."""
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)  # no gap between title bar and tab bar
         main_layout.addWidget(self.toolbar_manager.get_title_bar())
         
         self.content_splitter = QSplitter(Qt.Horizontal)
@@ -346,9 +347,6 @@ class TimeGraphWidget(QWidget):
         # Apply saved graph settings after graph count change
         self._apply_saved_graph_settings()
         
-        # Rebuild the bitmask panel
-        self.bitmask_panel_manager.update_graph_sections(count)
-        
         # Recreate the stats panel to match the new number of graphs
         self._recreate_statistics_panel()
         # DON'T update statistics here - wait for cursor movement for performance
@@ -511,7 +509,7 @@ class TimeGraphWidget(QWidget):
             
             # Sync initial snap to data setting from graph settings panel
             if hasattr(self, 'graph_settings_panel_manager'):
-                initial_snap_setting = self.graph_settings_panel_manager.global_settings.get('snap_to_data', False)
+                initial_snap_setting = self.graph_settings_panel_manager.global_settings.get('snap_to_data', True)
                 self.cursor_manager.set_snap_to_data(initial_snap_setting)
                 
                 # Sync initial tooltip setting from graph settings panel
@@ -647,6 +645,9 @@ class TimeGraphWidget(QWidget):
                 plot_widget.enableAutoRange(axis='x', enable=False)
                 plot_widget.enableAutoRange(axis='y', enable=False)
             plot_manager.fit_y_to_data()
+            # "Auto-scale Y-Axis" setting: keep following the data from here
+            plot_manager.set_y_autoscale(
+                self.graph_settings_panel_manager.global_settings.get('autoscale', True))
             if tab_index in tabs_without_data and plot_manager.has_data():
                 plot_manager.fit_x_to_data()
                 refitted_tabs.add(tab_index)
@@ -873,7 +874,6 @@ class TimeGraphWidget(QWidget):
         if self.get_active_graph_container():
             count = self.get_active_graph_container().plot_manager.get_subplot_count()
             self.graph_settings_panel_manager.rebuild_controls(count)
-            self.bitmask_panel_manager.update_graph_sections(count)
         
         logger.info("Signal processing finished and UI updated - graphs start empty for manual signal selection.")
 
@@ -945,6 +945,28 @@ class TimeGraphWidget(QWidget):
 
         dialog.range_filter_applied.connect(self._apply_range_filter)
         dialog.exec_()
+
+    def _on_report_requested(self):
+        """Open the report window for this file's data (one window per file)."""
+        if not self.signal_processor.signal_data:
+            QMessageBox.information(self, "Report", "Load a data file first.")
+            return
+        dialog = getattr(self, '_report_dialog', None)
+        if dialog is not None and dialog.isVisible():
+            dialog.raise_()
+            dialog.activateWindow()
+            return
+
+        from src.ui.report_dialog import ReportDialog
+        file_name = ""
+        file_manager = getattr(self.window(), 'file_manager', None)
+        if file_manager is not None:
+            active = file_manager.get_active_file_data() or {}
+            file_name = active.get('filename', '')
+        # Own top-level window (taskbar entry); recreated so new parameters appear
+        self._report_dialog = ReportDialog(self, file_name)
+        self._report_dialog.setWindowIcon(self.windowIcon())
+        self._report_dialog.show()
 
     def _on_plot_clicked(self, plot_index: int, x: float, y: float):
         """Handle plot clicks."""
@@ -1081,124 +1103,81 @@ class TimeGraphWidget(QWidget):
                 
                 logger.info(f"Autoscale for graph {graph_index} set to {autoscale}")
 
+    # Graph Settings panel: every setting applies to all graphs of all tabs
     def _on_global_normalization_toggled(self, normalize: bool):
-        """Handle global normalization toggle for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container:
-            plot_widgets = active_container.get_plot_widgets()
-            for graph_index in range(len(plot_widgets)):
-                self._on_per_graph_normalization_toggled(graph_index, normalize)
-        
-        # Sync with right-click menu settings
-        self.graph_settings_panel_manager.sync_global_settings_from_right_click({'normalize': normalize})
+        """Show all signals normalized (display only) or with real values."""
+        if normalize:
+            self.signal_processor.apply_normalization()
+        else:
+            self.signal_processor.remove_normalization()
+        self._redraw_all_signals()
         logger.info(f"Global normalization {'enabled' if normalize else 'disabled'} for all graphs")
 
     def _on_global_view_reset(self):
-        """Handle global view reset for all graphs."""
+        """Show all data of the active tab's graphs."""
         active_container = self.get_active_graph_container()
         if active_container:
-            plot_widgets = active_container.get_plot_widgets()
-            for graph_index in range(len(plot_widgets)):
-                self._on_per_graph_view_reset(graph_index)
+            active_container.plot_manager.reset_view()
         logger.info("Global view reset applied to all graphs")
 
     def _on_global_grid_changed(self, show_grid: bool):
         """Handle global grid visibility for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container:
-            # Update plot manager's global settings
-            if hasattr(active_container, 'plot_manager') and hasattr(active_container.plot_manager, 'update_global_settings'):
-                active_container.plot_manager.update_global_settings()
-            
-            # Also update individual graph settings for consistency
-            plot_widgets = active_container.get_plot_widgets()
-            for graph_index in range(len(plot_widgets)):
-                self._on_per_graph_grid_changed(graph_index, show_grid)
-        
-        # Sync with right-click menu settings
-        self.graph_settings_panel_manager.sync_global_settings_from_right_click({'show_grid': show_grid})
+        for container in self.graph_containers:
+            container.plot_manager.set_grid_visibility(show_grid)
         logger.info(f"Global grid {'shown' if show_grid else 'hidden'} for all graphs")
 
     def _on_global_autoscale_changed(self, autoscale: bool):
         """Handle global Y-axis autoscale for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container:
-            plot_widgets = active_container.get_plot_widgets()
-            for graph_index in range(len(plot_widgets)):
-                self._on_per_graph_autoscale_changed(graph_index, autoscale)
-        
-        # Sync with right-click menu settings
-        self.graph_settings_panel_manager.sync_global_settings_from_right_click({'autoscale': autoscale})
+        for container in self.graph_containers:
+            container.plot_manager.set_y_autoscale(autoscale)
         logger.info(f"Global autoscale {'enabled' if autoscale else 'disabled'} for all graphs")
 
     def _on_global_legend_visibility_changed(self, visible: bool):
         """Handle global legend visibility for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container and hasattr(active_container, 'plot_manager'):
-            active_container.plot_manager.set_legend_visibility(visible)
-        
-        # Sync with right-click menu settings
-        self.graph_settings_panel_manager.sync_global_settings_from_right_click({'show_legend': visible})
+        for container in self.graph_containers:
+            container.plot_manager.set_legend_visibility(visible)
         logger.info(f"Global legend visibility set to {visible} for all graphs")
 
     def _on_global_tooltips_changed(self, enabled: bool):
         """Handle global tooltips toggle for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container and hasattr(active_container, 'plot_manager'):
-            active_container.plot_manager.set_tooltips_enabled(enabled)
-        
-        # Sync with right-click menu settings
-        self.graph_settings_panel_manager.sync_global_settings_from_right_click({'show_tooltips': enabled})
+        for container in self.graph_containers:
+            container.plot_manager.set_tooltips_enabled(enabled)
         logger.info(f"Global tooltips {'enabled' if enabled else 'disabled'} for all graphs")
 
     def _on_global_snap_changed(self, enabled: bool):
         """Handle global snap to data points for all graphs."""
-        logger.info(f"Global snap to data {'enabled' if enabled else 'disabled'} for all graphs")
-        
-        # Update cursor manager with snap setting
-        if hasattr(self, 'cursor_manager') and self.cursor_manager:
+        if self.cursor_manager:
             self.cursor_manager.set_snap_to_data(enabled)
-        
-        # Update plot manager with snap setting
-        active_container = self.get_active_graph_container()
-        if active_container and hasattr(active_container, 'plot_manager'):
-            active_container.plot_manager.set_snap_to_data(enabled)
+        for container in self.graph_containers:
+            container.plot_manager.snap_to_data_enabled = enabled
+        logger.info(f"Global snap to data {'enabled' if enabled else 'disabled'} for all graphs")
 
     def _on_global_line_width_changed(self, width: int):
         """Handle global line width change for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container:
-            # Use PlotManager's method to set line width
-            plot_manager = active_container.plot_manager
-            if plot_manager:
-                plot_manager.set_line_width(width)
+        for container in self.graph_containers:
+            container.plot_manager.set_line_width(width)
         logger.info(f"Global line width set to {width} for all graphs")
 
     def _on_global_x_mouse_changed(self, enabled: bool):
         """Handle global X axis mouse interaction for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container:
-            plot_widgets = active_container.get_plot_widgets()
-            for plot_widget in plot_widgets:
+        for container in self.graph_containers:
+            for plot_widget in container.get_plot_widgets():
                 plot_widget.setMouseEnabled(x=enabled, y=plot_widget.getViewBox().state['mouseEnabled'][1])
         logger.info(f"Global X axis mouse {'enabled' if enabled else 'disabled'} for all graphs")
 
     def _on_global_y_mouse_changed(self, enabled: bool):
         """Handle global Y axis mouse interaction for all graphs."""
-        active_container = self.get_active_graph_container()
-        if active_container:
-            plot_widgets = active_container.get_plot_widgets()
-            for plot_widget in plot_widgets:
+        for container in self.graph_containers:
+            for plot_widget in container.get_plot_widgets():
                 plot_widget.setMouseEnabled(x=plot_widget.getViewBox().state['mouseEnabled'][0], y=enabled)
         logger.info(f"Global Y axis mouse {'enabled' if enabled else 'disabled'} for all graphs")
-    
+
     def _on_global_secondary_axis_changed(self, enabled: bool):
         """Handle global secondary axis toggle."""
-        active_container = self.get_active_graph_container()
-        if active_container:
-            active_container.plot_manager.set_secondary_axis_enabled(enabled)
-            # Redraw all signals to apply axis assignment
-            self._redraw_all_signals()
+        for container in self.graph_containers:
+            container.plot_manager.set_secondary_axis_enabled(enabled)
+        # Redraw all signals to apply axis assignment
+        self._redraw_all_signals()
         logger.info(f"Global secondary axis {'enabled' if enabled else 'disabled'}")
 
     def _add_tab(self, name: Optional[str] = None):
@@ -1883,6 +1862,7 @@ class TimeGraphWidget(QWidget):
             self.toolbar_manager.bitmask_toggled.connect(self._on_bitmask_toggled)
 
         self.toolbar_manager.filters_requested.connect(self._on_filters_requested)
+        self.toolbar_manager.report_requested.connect(self._on_report_requested)
 
         # Settings panel connections
         self.settings_panel_manager.theme_changed.connect(self.set_theme)

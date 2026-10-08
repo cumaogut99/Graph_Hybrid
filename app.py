@@ -188,7 +188,7 @@ class TimeGraphApp(FramelessWindowMixin, QMainWindow):
         self.loading_manager = None
         
         # Multi-file manager
-        self.file_manager = MultiFileManager(self, max_files=3)
+        self.file_manager = MultiFileManager(self)
         
         # Widget container manager - HER DOSYA İÇİN AYRI WİDGET
         self.widget_container_manager = None
@@ -596,7 +596,7 @@ class TimeGraphApp(FramelessWindowMixin, QMainWindow):
             )
             
             logger.info(f"Dosya başarıyla yüklendi: {file_path} ({row_count} satır, {col_count} sütun)")
-            logger.info(f"Toplam açık dosya: {self.file_manager.get_file_count()}/{self.file_manager.max_files}")
+            logger.info(f"Toplam açık dosya: {self.file_manager.get_file_count()}")
             
         except Exception as e:
             error_msg = f"Veri widget'a yüklenirken hata oluştu: {str(e)}"

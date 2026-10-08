@@ -18,9 +18,9 @@ import logging
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 import numpy as np
 import pyqtgraph as pg
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QAction, QMenu, QFrame
-from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
-from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QAction, QMenu, QFrame
+from PyQt5.QtCore import Qt, QRectF, pyqtSignal as Signal, QObject
+from PyQt5.QtGui import QColor, QImage, QPainter, QPixmap
 
 # ✅ REFACTORED: Import from modular plot package
 from .plot import DateTimeAxisItem, PlotTooltipsHelper, PlotSecondaryAxisHelper
@@ -160,7 +160,7 @@ class PlotManager(QObject):
             'autoscale': True,
             'show_legend': True,
             'show_tooltips': False,
-            'snap_to_data': False,
+            'snap_to_data': True,
             'line_width': 1,
             'x_axis_mouse': True,
             'y_axis_mouse': True,
@@ -335,6 +335,7 @@ class PlotManager(QObject):
                 if new_x is not None and len(new_x) > 0:
                     # Update plot item with new data
                     try:
+                        new_y = signal_processor.normalize_for_display(signal_name, new_y)
                         plot_item.setData(new_x, new_y)
                         logger.debug(f"[LOD] Updated {signal_name} with {len(new_x)} points")
                     except Exception as e:
@@ -712,6 +713,10 @@ class PlotManager(QObject):
             # Apply global autoscale setting for Y axis
             autoscale = global_settings.get('autoscale', True)
             plot_widget.enableAutoRange(axis='y', enable=autoscale)
+
+            # Apply global mouse pan/zoom settings
+            plot_widget.setMouseEnabled(x=global_settings.get('x_axis_mouse', True),
+                                        y=global_settings.get('y_axis_mouse', True))
             
             # CRITICAL FIX: Disable X-axis auto-range by default
             # This prevents unwanted X-axis zoom changes when data is added
@@ -735,7 +740,8 @@ class PlotManager(QObject):
             self.tooltips_enabled = tooltips_enabled  # Update internal state
             self._setup_tooltip_for_plot(plot_widget, tooltips_enabled)
             
-            # Setup secondary axis if enabled (use instance variable, not global_settings)
+            # Setup secondary axis if enabled (new tabs follow the panel setting)
+            self.secondary_axis_enabled = global_settings.get('secondary_axis', self.secondary_axis_enabled)
             if self.secondary_axis_enabled:
                 self._setup_secondary_axis_for_plot(plot_widget, i)
             
@@ -948,13 +954,13 @@ class PlotManager(QObject):
         
         # Create plot item WITHOUT manual downsampling
         # PyQtGraph will handle downsampling automatically with setDownsampling()
+        # Line width from the Graph Settings panel (1 is fastest to render)
+        line_width = self._get_global_settings().get('line_width', 1)
         if pen is None:
             color = self._get_next_color(len(self.current_signals))
-            # PERFORMANCE: pen width=1 is fastest for PyQtGraph rendering
-            pen = pg.mkPen(color=color, width=1)
+            pen = pg.mkPen(color=color, width=line_width)
         elif isinstance(pen, str):
-            # Convert string color to pen with width=1
-            pen = pg.mkPen(color=pen, width=1)
+            pen = pg.mkPen(color=pen, width=line_width)
         
         # Store signal reference with a unique key (before axis assignment)
         signal_key = f"{name}_{plot_index}"
@@ -1082,7 +1088,8 @@ class PlotManager(QObject):
                     pass
             
         
-        # Clear all plot content
+        # Clear all plot content (secondary-axis curves are not in the plots)
+        self.secondary_axis_helper.clear_secondary_items()
         for plot_widget in self.plot_widgets:
             plot_widget.clear()
         
@@ -1173,6 +1180,12 @@ class PlotManager(QObject):
             padding = (y_max - y_min) * 0.05 or 0.5
             plot_widget.setYRange(y_min - padding, y_max + padding, padding=0)
 
+    def set_y_autoscale(self, enabled: bool):
+        """Y auto-range on/off; only plots with data are auto-ranged (an empty
+        plot would range onto the cursors)."""
+        for idx, plot_widget in enumerate(self.plot_widgets):
+            plot_widget.enableAutoRange(axis='y', enable=enabled and self.has_data(idx))
+
     def reset_view(self):
         """Reset the plot view to show all data including limit lines using original data ranges."""
         for idx, plot_widget in enumerate(self.plot_widgets):
@@ -1255,6 +1268,7 @@ class PlotManager(QObject):
     def clear_signals(self):
         """Tüm sinyalleri temizle."""
         try:
+            self.secondary_axis_helper.clear_secondary_items()
             # Plot widget'larındaki tüm sinyalleri temizle
             for plot_widget in self.plot_widgets:
                 plot_widget.clear()
@@ -1485,7 +1499,7 @@ class PlotManager(QObject):
         return list(signal_names)
 
     def _setup_context_menu_for_plot(self, plot_widget, plot_index: int):
-        """Setup custom context menu for plot widget with Zoom to Cursor option."""
+        """Setup the plot context menu, including a copy action for the whole tab."""
         view_box = plot_widget.getViewBox()
         menu = view_box.menu
         
@@ -1533,6 +1547,11 @@ class PlotManager(QObject):
         menu.aboutToShow.connect(update_menu)
         menu.addAction(zoom_to_cursors_action)
 
+        copy_action = QAction("Copy", menu)
+        copy_action.setToolTip("Copy all charts in this tab to the clipboard")
+        copy_action.triggered.connect(self.copy_all_plots_to_clipboard)
+        menu.addAction(copy_action)
+
         # "Add Marker" at the x position where the menu was opened
         original_raise_menu = view_box.raiseContextMenu
 
@@ -1548,6 +1567,48 @@ class PlotManager(QObject):
         menu.addAction(add_marker_action)
         
         logger.debug(f"Custom context menu setup for plot {plot_index}")
+
+    def copy_all_plots_to_clipboard(self) -> bool:
+        """Copy all charts, including their scene overlays, as one clipboard image."""
+        pixmap = self._render_all_plots_to_pixmap()
+        if pixmap is None or pixmap.isNull():
+            logger.warning("Cannot copy charts: failed to render plot scenes")
+            return False
+
+        QApplication.clipboard().setPixmap(pixmap)
+        logger.info("Copied all charts in the current tab to the clipboard")
+        return True
+
+    def _render_all_plots_to_pixmap(self) -> Optional[QPixmap]:
+        """Render plot scenes directly so OpenGL viewports do not omit plot items."""
+        if self.plot_container is None or not self.plot_widgets:
+            logger.warning("Cannot render charts: plot container is unavailable")
+            return None
+
+        size = self.plot_container.size()
+        if size.width() <= 0 or size.height() <= 0:
+            logger.warning("Cannot render charts: plot container has no size")
+            return None
+
+        image = QImage(size, QImage.Format_ARGB32_Premultiplied)
+        image.fill(QColor(self.theme_colors['background']))
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        try:
+            for plot_widget in self.plot_widgets:
+                if not plot_widget.isVisible():
+                    continue
+
+                # Rendering the scene (rather than grabbing the OpenGL viewport)
+                # includes PlotDataItems, InfiniteLines, legends, and other overlays.
+                target = QRectF(plot_widget.geometry())
+                source = plot_widget.mapToScene(plot_widget.viewport().rect()).boundingRect()
+                plot_widget.scene().render(painter, target, source, Qt.IgnoreAspectRatio)
+        finally:
+            painter.end()
+
+        return QPixmap.fromImage(image)
 
     # ------------------------------------------------------------------
     # Markers
