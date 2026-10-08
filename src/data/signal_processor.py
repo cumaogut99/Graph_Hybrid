@@ -713,6 +713,9 @@ class SignalProcessor(QObject):
                 return None
             
             reader = signal_info['mpai_reader']
+            if getattr(reader, 'closed', False):
+                logger.warning(f"[DOWNSAMPLE] '{signal_name}': MPAI reader is closed")
+                return None
             col_name = signal_info['column_name']
             time_col = signal_info['time_column']
             row_count = signal_info['row_count']
@@ -813,8 +816,11 @@ class SignalProcessor(QObject):
                         out_idx += 1
                     
                 except Exception as e:
-                    logger.warning(f"[DOWNSAMPLE] Bucket {bucket_idx} failed: {e}")
-                    continue
+                    # Every bucket reads the same files: if one fails (e.g. the
+                    # reader was closed) the rest fail too. Give up instead of
+                    # logging thousands of warnings per signal.
+                    logger.error(f"[DOWNSAMPLE] '{signal_name}' failed at bucket {bucket_idx}/{num_buckets}: {e}")
+                    return None
             
             # Trim to actual size
             x_out = x_out[:out_idx]

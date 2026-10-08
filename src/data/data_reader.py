@@ -51,6 +51,8 @@ class MpaiDirectoryReader:
         self.sample_rate = 0.0
         self.dt = 0.0
         self.t0 = 0.0
+        # Set by close(): the memory maps are released, data can't be read
+        self.closed = False
         
         # Load Metadata
         self._parse_metadata()
@@ -161,6 +163,8 @@ class MpaiDirectoryReader:
             # Verify range
             if start >= ch["sample_count"]:
                 return []
+            if ch["mmap_bin"] is None:
+                raise RuntimeError(self._no_data_message(col_name))
                 
             c_end = min(ch["sample_count"], end)
             
@@ -444,12 +448,18 @@ class MpaiDirectoryReader:
         
         return x_out, y_out, count
 
+    def _no_data_message(self, col_name: str) -> str:
+        if self.closed:
+            return f"MPAI reader is closed, cannot read '{col_name}'"
+        return f"No data file for '{col_name}' in {self.mpai_path}"
+
     def close(self):
         """Closes file handles (if necessary). Numpy memmap handles closing automatically usually."""
         # Explicit closing isn't strictly needed for memmap in read mode, 
         # but good practice if we want to release file locks on Windows.
         # However, np.memmap doesn't have a close() method. 
         # We can delete the reference.
+        self.closed = True
         for ch in self.channels.values():
             if ch["mmap_bin"] is not None:
                 del ch["mmap_bin"]
@@ -504,6 +514,9 @@ class MpaiDirectoryReader:
         USE_REDUCED_THRESHOLD = 250 # If > 250 samples fit in 1 pixel, use reduced
         # Or strictly if we can simply map 1 Reduced Block to < 2 Pixels.
         
+        if ch["mmap_bin"] is None:
+            raise RuntimeError(self._no_data_message(ch["name"]))
+
         if samples_per_pixel > USE_REDUCED_THRESHOLD and ch["mmap_red"] is not None:
             return self._get_reduced_window(ch, idx_start, idx_end)
         else:
