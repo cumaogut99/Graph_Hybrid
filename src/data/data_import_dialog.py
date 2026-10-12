@@ -36,6 +36,45 @@ from PyQt5.QtGui import QFont, QPalette, QColor
 
 logger = logging.getLogger(__name__)
 
+# [-] value [+] spin boxes, like the graph count in the toolbar
+STEPPER_STYLE = """
+            QSpinBox#stepper {
+                padding: 2px 2px;  /* Qt reserves the -/+ button widths itself */
+                min-width: 110px;
+            }
+            QSpinBox#stepper::up-button, QSpinBox#stepper::down-button {
+                subcontrol-origin: border;
+                background: transparent;
+                border: none;
+                border-radius: 4px;
+                width: 26px;
+                height: 22px;  /* full spinbox height inside the border */
+            }
+            QSpinBox#stepper::up-button {
+                subcontrol-position: right;
+            }
+            QSpinBox#stepper::down-button {
+                subcontrol-position: left;
+            }
+            QSpinBox#stepper::up-button:hover, QSpinBox#stepper::down-button:hover {
+                background: rgba(127, 179, 211, 0.25);
+            }
+            QSpinBox#stepper::up-button:pressed, QSpinBox#stepper::down-button:pressed {
+                background: rgba(127, 179, 211, 0.4);
+            }
+            QSpinBox#stepper::up-arrow {
+                image: url(%s);
+                width: 13px;
+                height: 13px;
+            }
+            QSpinBox#stepper::down-arrow {
+                image: url(%s);
+                width: 13px;
+                height: 13px;
+            }
+""" % tuple(os.path.abspath(f'icons/{name}.svg').replace(os.sep, '/')
+            for name in ('spin-plus', 'spin-minus'))
+
 # "Zaman Formatı" choices -> setting passed to the converter
 TIME_FORMAT_CHOICES = {
     'Otomatik - Kendisi seçsin': 'Otomatik',
@@ -508,6 +547,8 @@ class DataImportDialog(QDialog):
         self.header_spinbox.setRange(-1, 100)
         self.header_spinbox.setValue(0)
         self.header_spinbox.setSpecialValueText("Header Yok")
+        self.header_spinbox.setObjectName("stepper")
+        self.header_spinbox.setAlignment(Qt.AlignCenter)
         self.header_spinbox.setToolTip("Kolon isimlerinin bulunduğu satır numarası (0=ilk satır)")
         layout.addWidget(self.header_spinbox, 0, 1)
         
@@ -535,6 +576,8 @@ class DataImportDialog(QDialog):
         self.start_row_spinbox = QSpinBox()
         self.start_row_spinbox.setRange(0, 1000)
         self.start_row_spinbox.setValue(1)  # Header'dan sonra
+        self.start_row_spinbox.setObjectName("stepper")
+        self.start_row_spinbox.setAlignment(Qt.AlignCenter)
         self.start_row_spinbox.setToolTip("Header satırından sonra veri hangi satırda başlıyor")
         layout.addWidget(self.start_row_spinbox, 0, 1)
         
@@ -1315,7 +1358,7 @@ class DataImportDialog(QDialog):
                 width: 10px;
                 height: 10px;
             }
-        """)
+        """ + STEPPER_STYLE)
         
     def get_import_settings(self) -> Dict[str, Any]:
         """Import ayarlarını döndür."""
