@@ -241,7 +241,8 @@ class ReportBuilder:
         params = self.config.statistics_params
         groups = self.config.condition_groups
 
-        if self.config.statistics_whole_range or not groups:
+        # Tables per condition group; without groups one table over the whole range
+        if not groups:
             rows, missing = [], []
             for name in params:
                 s = self.data.series(name)

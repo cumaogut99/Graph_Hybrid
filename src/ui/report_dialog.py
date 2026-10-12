@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QRegExp, pyqtSignal as Signal
 from PyQt5.QtGui import QRegExpValidator
 from PyQt5.QtWidgets import (
     QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+    QCompleter, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar,
     QPushButton, QRadioButton, QSpinBox, QStackedWidget, QTableWidget, QVBoxLayout, QWidget,
 )
@@ -328,13 +328,12 @@ class ReportDialog(QDialog):
         page, layout = self._page(
             "Statistics",
             "Min, mean, max and standard deviation of the selected parameters, calculated on the "
-            "full-resolution data of the report range. Each condition group gets its own table, "
-            "computed on the rows where all conditions of the group hold.")
+            "full-resolution data of the report range. Each condition group gets its own table of "
+            "the parameters selected here, computed on the rows where all conditions of the group "
+            "hold; condition parameters are only used for filtering.")
         self.stats_checklist = ParameterChecklist(self.parameters)
         self.stats_checklist.list.setMinimumHeight(100)
         layout.addWidget(self.stats_checklist, 1)
-        self.whole_range_check = QCheckBox("Also a table for the whole range (without conditions)")
-        layout.addWidget(self.whole_range_check)
 
         groups_box = QGroupBox("Condition groups")
         groups_layout = QHBoxLayout(groups_box)
@@ -461,6 +460,18 @@ class ReportDialog(QDialog):
     # ------------------------------------------------------------------
     # Table rows
     # ------------------------------------------------------------------
+    def _search_combo(self, items: List[str], current: str = "") -> QComboBox:
+        """Combo box to type into: the list narrows to the items containing the text."""
+        combo = self._combo(items, current)
+        combo.setEditable(True)
+        combo.setInsertPolicy(QComboBox.NoInsert)
+        combo.lineEdit().setPlaceholderText("Search parameter...")
+        completer = combo.completer()
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        return combo
+
     def _combo(self, items: List[str], current: str = "") -> QComboBox:
         combo = QComboBox()
         combo.addItems(items)
@@ -488,7 +499,7 @@ class ReportDialog(QDialog):
         condition = condition or RangeCondition(param=self.parameters[0] if self.parameters else "")
         row = self.conditions_table.rowCount()
         self.conditions_table.insertRow(row)
-        self.conditions_table.setCellWidget(row, 0, self._combo(self.parameters, condition.param))
+        self.conditions_table.setCellWidget(row, 0, self._search_combo(self.parameters, condition.param))
         self.conditions_table.setCellWidget(row, 1, self._bound_edit(condition.minimum))
         self.conditions_table.setCellWidget(row, 2, self._bound_edit(condition.maximum))
 
@@ -723,7 +734,6 @@ class ReportDialog(QDialog):
 
         self._set_section_checked(self.NAV_STATISTICS, config.statistics_enabled)
         self.stats_checklist.set_checked(config.statistics_params)
-        self.whole_range_check.setChecked(config.statistics_whole_range)
         self._set_groups([ConditionGroup(name=g.name, conditions=list(g.conditions))
                           for g in config.condition_groups])
 
@@ -749,7 +759,6 @@ class ReportDialog(QDialog):
             trends=self._trend_rows(),
             statistics_enabled=self._section_checked(self.NAV_STATISTICS),
             statistics_params=self.stats_checklist.checked(),
-            statistics_whole_range=self.whole_range_check.isChecked(),
             condition_groups=self._read_groups(),
             filtered_charts_enabled=self._section_checked(self.NAV_FILTERED),
             filtered_chart_params=self.filtered_checklist.checked(),
@@ -825,6 +834,9 @@ class ReportDialog(QDialog):
         if config.statistics_enabled or config.filtered_charts_enabled:
             for group in config.condition_groups:
                 for c in group.conditions:
+                    if c.param not in self.parameters:
+                        return (f"Condition group '{group.name}': '{c.param}' is not a parameter "
+                                f"of this file. Pick one from the list.")
                     if c.minimum is not None and c.maximum is not None and c.minimum > c.maximum:
                         return (f"Condition group '{group.name}': the Min of {c.param} "
                                 f"is greater than its Max.")

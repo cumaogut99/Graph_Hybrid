@@ -69,7 +69,6 @@ class ReportConfig:
 
     statistics_enabled: bool = True
     statistics_params: List[str] = field(default_factory=list)
-    statistics_whole_range: bool = True   # a table over the whole range too
     condition_groups: List[ConditionGroup] = field(default_factory=list)
 
     # One chart per condition group: the rows of the group joined end to end
