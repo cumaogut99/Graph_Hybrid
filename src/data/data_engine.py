@@ -301,6 +301,18 @@ class MpaiStreamWriter:
             # Buffer
             self.red_buffers[i] = []
             
+    def update_timing(self, sample_rate: float, start_time: float):
+        """Rewrite SampleRate / T0 / Dt in setup.xml (e.g. once the real rate is known)."""
+        self.sample_rate = sample_rate
+        setup_path = self.output_path / "setup.xml"
+        tree = ET.parse(setup_path)
+        root = tree.getroot()
+        root.find("Info/SampleRate").text = str(sample_rate)
+        for ch_elem in root.iter("Channel"):
+            ch_elem.find("T0").text = repr(float(start_time))
+            ch_elem.find("Dt").text = str(1.0 / sample_rate)
+        tree.write(setup_path, encoding="utf-8", xml_declaration=True)
+
     def write_chunk(self, chunk_data: Dict[str, np.ndarray]):
         """
         Write a chunk of data.

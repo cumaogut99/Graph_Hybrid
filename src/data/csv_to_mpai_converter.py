@@ -733,6 +733,10 @@ class CsvToMpaiConverter(QObject):
         
         chunk_id = 0
         rows_processed = 0
+        # First and last valid time value with their row numbers: the real
+        # sampling rate over the whole recording (see _correct_sample_rate)
+        time_col = self.settings.get('time_column')
+        time_first = time_last = None
         
         while True:
             if self.cancelled: break
@@ -760,6 +764,13 @@ class CsvToMpaiConverter(QObject):
                 if col_name in df_batch.columns:
                     series = self._to_numeric_series(df_batch.get_column(col_name))
                     data = series.to_numpy()  # nulls -> NaN -> 0 below
+
+                    if col_name == time_col and data.dtype.kind in 'fi':
+                        valid = np.flatnonzero(np.isfinite(data))
+                        if len(valid):
+                            if time_first is None:
+                                time_first = (rows_processed + valid[0], float(data[valid[0]]))
+                            time_last = (rows_processed + valid[-1], float(data[valid[-1]]))
 
                     # Handle NaN/Inf
                     if data.dtype.kind in 'fi':
@@ -791,9 +802,31 @@ class CsvToMpaiConverter(QObject):
             
         # Finalize
         writer.close()
+        if time_first and time_last:
+            self._correct_sample_rate(writer, sampling_freq, time_first, time_last)
         logger.info(f"MPAI directory written: {self.mpai_path}")
         
         return rows_processed
+
+    def _correct_sample_rate(self, writer, sampling_freq: float, first: tuple, last: tuple):
+        """
+        The rate detected from the first rows can be wrong: with a time column
+        of whole seconds and several rows per second (09:38:15, 09:38:15, ...)
+        the median step is 0 and the default 1000 Hz stays. The reader builds
+        the time axis as T0 + i * dt, so 'View All' then showed only a few
+        seconds. Use the rate over the whole recording instead.
+        """
+        (i_first, t_first), (i_last, t_last) = first, last
+        if i_last <= i_first or t_last <= t_first:
+            return
+        real_freq = (i_last - i_first) / (t_last - t_first)
+        if abs(real_freq - sampling_freq) <= sampling_freq * 0.01:
+            return
+        start_time = t_first - i_first / real_freq
+        logger.info(f"[CSV AUTO-DETECT] Fs corrected from whole recording: "
+                    f"{sampling_freq:.4f} Hz -> {real_freq:.4f} Hz")
+        writer.update_timing(real_freq, start_time)
+        self.settings['sampling_frequency'] = real_freq
     
     def _numeric_expr(self, col: str) -> pl.Expr:
         """Text column -> Float64 expression (null where not a number)."""
