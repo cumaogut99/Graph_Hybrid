@@ -11,8 +11,8 @@ import numpy as np
 
 from . import charts
 from .charts import format_number
-from .config import ReportConfig, TIME_AXIS
-from .data_source import ReportContext, ReportData, envelope, statistics, thin
+from .config import ConditionGroup, RangeCondition, ReportConfig, TIME_AXIS
+from .data_source import ReportContext, ReportData, envelope, join_segments, statistics, thin
 from .texts import texts
 
 
@@ -85,10 +85,12 @@ class ReportBuilder:
     # ------------------------------------------------------------------
     def build(self) -> Report:
         c = self.config
-        op_points = len(c.operating_points.values) if c.statistics_enabled and c.operating_points.enabled else 0
-        self._steps_total = 3 + op_points \
+        groups = len(c.condition_groups)
+        self._steps_total = 3 \
+            + (len(c.histogram_params) if c.histograms_enabled else 0) \
             + (len(c.trends) if c.trends_enabled else 0) \
-            + (len(c.histogram_params) if c.histograms_enabled else 0)
+            + (groups if c.statistics_enabled else 0) \
+            + (groups if c.filtered_charts_enabled else 0)
 
         report = Report(
             title=c.title.strip() or self.t["default_title"],
@@ -101,12 +103,14 @@ class ReportBuilder:
         )
 
         content: List[Section] = []
-        if c.statistics_enabled and c.statistics_params:
-            content.append(self._statistics_section())
-        if c.trends_enabled and c.trends:
-            content.append(self._trends_section())
         if c.histograms_enabled and c.histogram_params:
             content.append(self._histograms_section())
+        if c.trends_enabled and c.trends:
+            content.append(self._trends_section())
+        if c.statistics_enabled and c.statistics_params:
+            content.append(self._statistics_section())
+        if c.filtered_charts_enabled and c.filtered_chart_params and c.condition_groups:
+            content.append(self._filtered_charts_section())
         content = [s for s in content if s.blocks]
 
         if c.summary_enabled:
@@ -140,12 +144,12 @@ class ReportBuilder:
 
     def _stat_headers(self) -> List[str]:
         t = self.t
-        return [t["h_parameter"], t["h_samples"], t["h_min"], t["h_mean"], t["h_max"], t["h_std"], t["h_rms"]]
+        return [t["h_parameter"], t["h_samples"], t["h_min"], t["h_mean"], t["h_max"], t["h_std"]]
 
     @staticmethod
     def _stat_row(name: str, st) -> List[str]:
         return [name, f"{st.count:,}", format_number(st.minimum), format_number(st.mean),
-                format_number(st.maximum), format_number(st.std), format_number(st.rms)]
+                format_number(st.maximum), format_number(st.std)]
 
     # ------------------------------------------------------------------
     # Summary
@@ -180,81 +184,123 @@ class ReportBuilder:
         return section
 
     # ------------------------------------------------------------------
+    # Condition groups
+    # ------------------------------------------------------------------
+    def _group_name(self, index: int, group: ConditionGroup) -> str:
+        return group.name.strip() or self.t["group_default"].format(n=index + 1)
+
+    @staticmethod
+    def _active(group: ConditionGroup) -> List[RangeCondition]:
+        """Conditions that limit something (a parameter and at least one bound)."""
+        return [c for c in group.conditions
+                if c.param and (c.minimum is not None or c.maximum is not None)]
+
+    def _conditions_text(self, group: ConditionGroup) -> str:
+        t = self.t
+        parts = []
+        for c in self._active(group):
+            if c.minimum is not None and c.maximum is not None:
+                parts.append(f"{format_number(c.minimum)} ≤ {c.param} ≤ {format_number(c.maximum)}")
+            elif c.minimum is not None:
+                parts.append(f"{c.param} ≥ {format_number(c.minimum)}")
+            else:
+                parts.append(f"{c.param} ≤ {format_number(c.maximum)}")
+        if not parts:
+            return t["group_no_conditions"]
+        return t["group_conditions"].format(conditions=t["group_and"].join(parts))
+
+    def _group_rows(self, group: ConditionGroup, params: List[str]):
+        """
+        (aligned columns, row mask) of `params` for the rows that meet the
+        group's conditions, on the time base of the first parameter;
+        (None, missing names) if a parameter has no data in range.
+        """
+        conditions = self._active(group)
+        names = list(dict.fromkeys(params + [c.param for c in conditions]))
+        missing = [n for n in names if self.data.series(n) is None]
+        if missing:
+            return None, missing
+        aligned = self.data.aligned(names[0], names[1:])
+        if aligned is None:
+            return None, names
+        mask = np.ones(len(aligned['__time__']), dtype=bool)
+        for c in conditions:
+            values = aligned[c.param]
+            if c.minimum is not None:
+                mask &= values >= c.minimum
+            if c.maximum is not None:
+                mask &= values <= c.maximum
+        return aligned, mask
+
+    # ------------------------------------------------------------------
     # Statistics
     # ------------------------------------------------------------------
     def _statistics_section(self) -> Section:
         t = self.t
         section = Section(t["statistics"])
-        rows, missing = [], []
-        for name in self.config.statistics_params:
-            s = self.data.series(name)
-            st = statistics(s[1]) if s is not None else None
-            if st is None:
-                missing.append(name)
-            else:
-                rows.append(self._stat_row(name, st))
-        if rows:
-            section.blocks.append(Table(t["stats_table"], self._stat_headers(), rows))
-        if missing:
-            section.blocks.append(Paragraph(t["no_data_for"].format(names=", ".join(missing))))
+        params = self.config.statistics_params
+        groups = self.config.condition_groups
+
+        if self.config.statistics_whole_range or not groups:
+            rows, missing = [], []
+            for name in params:
+                s = self.data.series(name)
+                st = statistics(s[1]) if s is not None else None
+                if st is None:
+                    missing.append(name)
+                else:
+                    rows.append(self._stat_row(name, st))
+            if rows:
+                section.blocks.append(Table(t["stats_table"], self._stat_headers(), rows))
+            if missing:
+                section.blocks.append(Paragraph(t["no_data_for"].format(names=", ".join(missing))))
         self._step(t["statistics"])
 
-        if self.config.operating_points.enabled:
-            section.blocks += self._operating_point_blocks()
-        return section
-
-    def _operating_point_blocks(self) -> List[Block]:
-        t = self.t
-        op = self.config.operating_points
-        params = [p for p in self.config.statistics_params if p != op.control_param]
-        filter_params = [f.param for f in op.filters if f.param]
-        others = [p for p in dict.fromkeys(params + filter_params) if p != op.control_param]
-        aligned = self.data.aligned(op.control_param, others) if op.control_param else None
-        if aligned is None:
-            return [Paragraph(t["op_missing"].format(param=op.control_param))]
-
-        control = aligned[op.control_param]
-        base_mask = np.ones(len(control), dtype=bool)
-        conditions = []
-        for f in op.filters:
-            if f.param in aligned:
-                values = aligned[f.param]
-                base_mask &= (values < f.value) if f.op == "<" else (values > f.value)
-                conditions.append(f"{f.param} {f.op} {format_number(f.value)}")
-
-        blocks: List[Block] = [Paragraph(t["op_intro"].format(
-            param=op.control_param, tol=format_number(op.tolerance),
-            conditions=(t["op_and"] + t["op_and"].join(conditions)) if conditions else ""))]
-
-        means = {p: [] for p in params}
-        point_headers, empty, details = [], [], []
-        for value in op.values:
-            mask = base_mask & (np.abs(control - value) <= op.tolerance)
-            count = int(np.count_nonzero(mask))
-            label = f"{op.control_param} ≈ {format_number(value)}"
-            if count == 0:
-                empty.append(format_number(value))
+        for index, group in enumerate(groups):
+            name = self._group_name(index, group)
+            section.blocks.append(Paragraph(f"{name}: {self._conditions_text(group)}"))
+            aligned, mask = self._group_rows(group, params)
+            if aligned is None:
+                section.blocks.append(Paragraph(t["group_missing"].format(name=name, names=", ".join(mask))))
             else:
-                point_headers.append(f"≈ {format_number(value)} (n={count:,})")
+                count = int(np.count_nonzero(mask))
                 rows = []
                 for p in params:
-                    st = statistics(aligned[p][mask])
-                    means[p].append(format_number(st.mean) if st else "–")
+                    st = statistics(aligned[p][mask]) if count else None
                     if st:
                         rows.append(self._stat_row(p, st))
                 if rows:
-                    details.append(Table(t["op_detail"].format(label=label, count=f"{count:,}"),
-                                         self._stat_headers(), rows))
-            self._step(label)
+                    section.blocks.append(Table(t["group_table"].format(name=name, count=f"{count:,}"),
+                                                self._stat_headers(), rows))
+                else:
+                    section.blocks.append(Paragraph(t["group_empty"].format(name=name)))
+            self._step(name)
+        return section
 
-        if point_headers and params:
-            blocks.append(Table(t["op_means"].format(param=op.control_param),
-                                [t["h_parameter"]] + point_headers,
-                                [[p] + means[p] for p in params]))
-        blocks += details
-        if empty:
-            blocks.append(Paragraph(t["op_empty"].format(param=op.control_param, values=", ".join(empty))))
-        return blocks
+    # ------------------------------------------------------------------
+    # Charts of the condition groups
+    # ------------------------------------------------------------------
+    def _filtered_charts_section(self) -> Section:
+        t = self.t
+        section = Section(t["filtered_charts"])
+        params = self.config.filtered_chart_params
+        for index, group in enumerate(self.config.condition_groups):
+            name = self._group_name(index, group)
+            section.blocks.append(Paragraph(f"{name}: {self._conditions_text(group)}"))
+            aligned, mask = self._group_rows(group, params)
+            if aligned is None:
+                section.blocks.append(Paragraph(t["group_missing"].format(name=name, names=", ".join(mask))))
+            elif not np.any(mask):
+                section.blocks.append(Paragraph(t["group_empty"].format(name=name)))
+            else:
+                joined, starts = join_segments(aligned['__time__'], mask)
+                series = [envelope(joined, aligned[p][mask]) for p in params]
+                png = charts.time_trend(params, series, False, t, self.config.filtered_chart_layout,
+                                        x_label=t["axis_joined_time"], boundaries=starts)
+                section.blocks.append(Figure(t["filtered_caption"].format(
+                    name=name, count=f"{len(joined):,}", segments=f"{len(starts) + 1:,}"), png))
+            self._step(name)
+        return section
 
     # ------------------------------------------------------------------
     # Trends

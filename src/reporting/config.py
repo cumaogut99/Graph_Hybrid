@@ -6,7 +6,7 @@ Edited in the report window, saved/loaded as a JSON template.
 
 import json
 from dataclasses import dataclass, field, asdict
-from typing import List
+from typing import List, Optional
 
 FORMAT_PPTX = "pptx"
 FORMAT_DOCX = "docx"
@@ -24,21 +24,18 @@ LAYOUT_STACKED = "stacked"
 
 
 @dataclass
-class OperatingPointFilter:
-    """Extra condition on the rows of an operating point: param <op> value."""
+class RangeCondition:
+    """param within [minimum, maximum]; a missing bound means no limit on that side."""
     param: str = ""
-    op: str = "<"            # '<' or '>'
-    value: float = 0.0
+    minimum: Optional[float] = None
+    maximum: Optional[float] = None
 
 
 @dataclass
-class OperatingPoints:
-    """Statistics per operating point: rows where |control - value| <= tolerance."""
-    enabled: bool = False
-    control_param: str = ""
-    values: List[float] = field(default_factory=list)
-    tolerance: float = 0.5
-    filters: List[OperatingPointFilter] = field(default_factory=list)
+class ConditionGroup:
+    """Rows where all conditions hold; gets its own statistics table and chart."""
+    name: str = ""
+    conditions: List[RangeCondition] = field(default_factory=list)
 
 
 @dataclass
@@ -62,16 +59,23 @@ class ReportConfig:
 
     summary_enabled: bool = True
 
-    statistics_enabled: bool = True
-    statistics_params: List[str] = field(default_factory=list)
-    operating_points: OperatingPoints = field(default_factory=OperatingPoints)
+    # Sections appear in the report in this order
+    histograms_enabled: bool = False
+    histogram_params: List[str] = field(default_factory=list)
+    histogram_bins: int = 0  # 0: automatic
 
     trends_enabled: bool = True
     trends: List[TrendChart] = field(default_factory=list)
 
-    histograms_enabled: bool = False
-    histogram_params: List[str] = field(default_factory=list)
-    histogram_bins: int = 0  # 0: automatic
+    statistics_enabled: bool = True
+    statistics_params: List[str] = field(default_factory=list)
+    statistics_whole_range: bool = True   # a table over the whole range too
+    condition_groups: List[ConditionGroup] = field(default_factory=list)
+
+    # One chart per condition group: the rows of the group joined end to end
+    filtered_charts_enabled: bool = False
+    filtered_chart_params: List[str] = field(default_factory=list)
+    filtered_chart_layout: str = LAYOUT_AUTO
 
     # ------------------------------------------------------------------
     # JSON templates
@@ -84,15 +88,12 @@ class ReportConfig:
         """Build from a template dict; unknown keys are ignored, missing keys keep defaults."""
         config = cls()
         for key, value in (data or {}).items():
-            if key == "operating_points" and isinstance(value, dict):
-                op = OperatingPoints()
-                for k, v in value.items():
-                    if k == "filters":
-                        op.filters = [OperatingPointFilter(**_known(OperatingPointFilter, f)) for f in v or []]
-                    elif hasattr(op, k):
-                        setattr(op, k, v)
-                op.values = [float(v) for v in op.values]
-                config.operating_points = op
+            if key == "condition_groups":
+                config.condition_groups = [
+                    ConditionGroup(name=str((g or {}).get("name", "")),
+                                   conditions=[RangeCondition(**_known(RangeCondition, c))
+                                               for c in (g or {}).get("conditions") or []])
+                    for g in value or []]
             elif key == "trends":
                 config.trends = [TrendChart(**_known(TrendChart, t)) for t in value or []]
             elif hasattr(config, key):
@@ -114,18 +115,20 @@ class ReportConfig:
     def used_parameters(self) -> List[str]:
         """Every parameter referenced by an enabled section."""
         names = []
-        if self.statistics_enabled:
-            names += self.statistics_params
-            if self.operating_points.enabled:
-                names.append(self.operating_points.control_param)
-                names += [f.param for f in self.operating_points.filters]
+        if self.histograms_enabled:
+            names += self.histogram_params
         if self.trends_enabled:
             for chart in self.trends:
                 names += chart.y
                 if chart.x != TIME_AXIS:
                     names.append(chart.x)
-        if self.histograms_enabled:
-            names += self.histogram_params
+        if self.statistics_enabled:
+            names += self.statistics_params
+        if self.filtered_charts_enabled:
+            names += self.filtered_chart_params
+        if self.statistics_enabled or self.filtered_charts_enabled:
+            for group in self.condition_groups:
+                names += [c.param for c in group.conditions]
         return [n for n in dict.fromkeys(names) if n]
 
 

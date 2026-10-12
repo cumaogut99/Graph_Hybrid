@@ -5,22 +5,22 @@ active file's data (opened from the toolbar's Report button).
 
 import logging
 import os
-import re
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal as Signal
+from PyQt5.QtCore import Qt, QRegExp, pyqtSignal as Signal
+from PyQt5.QtGui import QRegExpValidator
 from PyQt5.QtWidgets import (
     QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+    QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar,
     QPushButton, QRadioButton, QSpinBox, QStackedWidget, QTableWidget, QVBoxLayout, QWidget,
 )
 
 from src.reporting.config import (
     FORMAT_DOCX, FORMAT_PPTX, LAYOUT_AUTO, LAYOUT_OVERLAY, LAYOUT_STACKED, SCOPE_ALL,
-    SCOPE_CURSORS, TIME_AXIS, OperatingPointFilter, OperatingPoints, ReportConfig,
-    TrendChart,
+    SCOPE_CURSORS, TIME_AXIS, ConditionGroup, RangeCondition, ReportConfig, TrendChart,
 )
+from src.reporting.charts import MAX_SERIES
 from src.reporting.data_source import ReportContext
 from src.reporting.texts import LANGUAGES, texts
 from src.reporting.worker import ReportWorker
@@ -174,7 +174,8 @@ class ParameterPickerDialog(QDialog):
 class ReportDialog(QDialog):
     """The report window of one data file (TimeGraphWidget)."""
 
-    NAV_GENERAL, NAV_STATISTICS, NAV_TRENDS, NAV_HISTOGRAMS = range(4)
+    # Same order as the sections in the report
+    NAV_GENERAL, NAV_HISTOGRAMS, NAV_TRENDS, NAV_STATISTICS, NAV_FILTERED = range(5)
 
     def __init__(self, graph_widget, file_name: str = "", parent=None):
         super().__init__(parent)
@@ -182,13 +183,15 @@ class ReportDialog(QDialog):
         self.file_name = file_name
         self.parameters = sorted(graph_widget.signal_processor.signal_data.keys())
         self.worker: Optional[ReportWorker] = None
+        self.groups: List[ConditionGroup] = []
+        self._group_row = -1   # group shown in the conditions table
 
         self.setWindowTitle(f"Report - {file_name}" if file_name else "Report")
         self.setWindowFlags(Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint |
                             Qt.WindowCloseButtonHint | Qt.WindowTitleHint | Qt.WindowSystemMenuHint)
         self.setStyleSheet(STYLE)
         self.setMinimumSize(860, 600)
-        self.resize(980, 680)
+        self.resize(1020, 720)
 
         self._build_ui()
         self._apply_config(self._load_last_config())
@@ -210,7 +213,8 @@ class ReportDialog(QDialog):
         self.nav = QListWidget()
         self.nav.setObjectName("nav")
         self.nav.setFixedWidth(190)
-        for text, checkable in (("General", False), ("Statistics", True), ("Trends", True), ("Histograms", True)):
+        for text, checkable in (("General", False), ("Histograms", True), ("Trends", True),
+                                ("Statistics", True), ("Filtered charts", True)):
             item = QListWidgetItem(text)
             if checkable:
                 item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
@@ -221,9 +225,10 @@ class ReportDialog(QDialog):
 
         self.pages = QStackedWidget()
         self.pages.addWidget(self._general_page())
-        self.pages.addWidget(self._statistics_page())
-        self.pages.addWidget(self._trends_page())
         self.pages.addWidget(self._histograms_page())
+        self.pages.addWidget(self._trends_page())
+        self.pages.addWidget(self._statistics_page())
+        self.pages.addWidget(self._filtered_page())
         body.addWidget(self.pages, 1)
         self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
         self.nav.setCurrentRow(0)
@@ -322,57 +327,85 @@ class ReportDialog(QDialog):
     def _statistics_page(self) -> QWidget:
         page, layout = self._page(
             "Statistics",
-            "Min, mean, max, standard deviation and RMS of the selected parameters, "
-            "calculated on the full-resolution data of the report range.")
+            "Min, mean, max and standard deviation of the selected parameters, calculated on the "
+            "full-resolution data of the report range. Each condition group gets its own table, "
+            "computed on the rows where all conditions of the group hold.")
         self.stats_checklist = ParameterChecklist(self.parameters)
-        self.stats_checklist.list.setMinimumHeight(150)
+        self.stats_checklist.list.setMinimumHeight(100)
         layout.addWidget(self.stats_checklist, 1)
+        self.whole_range_check = QCheckBox("Also a table for the whole range (without conditions)")
+        layout.addWidget(self.whole_range_check)
 
-        self.op_group = QGroupBox("Statistics per operating point")
-        self.op_group.setCheckable(True)
-        self.op_group.setChecked(False)
-        op_layout = QVBoxLayout(self.op_group)
-        op_hint = QLabel("For each value, the rows where |control parameter − value| ≤ tolerance "
-                         "(and the extra conditions) are used. The selected parameters above are reported.")
-        op_hint.setObjectName("hint")
-        op_hint.setWordWrap(True)
-        op_layout.addWidget(op_hint)
+        groups_box = QGroupBox("Condition groups")
+        groups_layout = QHBoxLayout(groups_box)
+        groups_layout.setSpacing(10)
 
-        form = QFormLayout()
-        form.setVerticalSpacing(6)
-        self.op_control_combo = QComboBox()
-        self.op_control_combo.addItems(self.parameters)
-        self.op_values_edit = QLineEdit()
-        self.op_values_edit.setPlaceholderText("e.g. 1000; 1500; 2000")
-        self.op_tolerance_spin = QDoubleSpinBox()
-        self.op_tolerance_spin.setDecimals(4)
-        self.op_tolerance_spin.setRange(0.0, 1e9)
-        self.op_tolerance_spin.setValue(0.5)
-        form.addRow("Control parameter:", self.op_control_combo)
-        form.addRow("Values:", self.op_values_edit)
-        form.addRow("Tolerance (±):", self.op_tolerance_spin)
-        op_layout.addLayout(form)
+        left = QVBoxLayout()
+        self.groups_list = QListWidget()
+        self.groups_list.setFixedWidth(200)
+        self.groups_list.setToolTip("Double-click to rename")
+        self.groups_list.currentRowChanged.connect(self._on_group_selected)
+        self.groups_list.itemChanged.connect(self._on_group_renamed)
+        left.addWidget(self.groups_list, 1)
+        group_buttons = QHBoxLayout()
+        for text, slot, tip in (("Add", self._add_group, "Add an empty condition group"),
+                                ("Copy", self._copy_group, "Add a copy of the selected group"),
+                                ("Remove", self._remove_group, "Remove the selected group")):
+            button = QPushButton(text)
+            button.setToolTip(tip)
+            button.clicked.connect(slot)
+            group_buttons.addWidget(button)
+        left.addLayout(group_buttons)
+        groups_layout.addLayout(left)
 
-        op_layout.addWidget(QLabel("Extra conditions (all must hold):"))
-        self.op_filters_table = QTableWidget(0, 3)
-        self.op_filters_table.setHorizontalHeaderLabels(["Parameter", "Condition", "Value"])
-        self.op_filters_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.op_filters_table.verticalHeader().setVisible(False)
-        self.op_filters_table.verticalHeader().setDefaultSectionSize(30)
-        self.op_filters_table.setColumnWidth(1, 90)
-        self.op_filters_table.setColumnWidth(2, 130)
-        self.op_filters_table.setMaximumHeight(100)
-        op_layout.addWidget(self.op_filters_table)
-        filter_buttons = QHBoxLayout()
-        add = QPushButton("Add condition")
-        add.clicked.connect(lambda: self._add_filter_row())
-        remove = QPushButton("Remove")
-        remove.clicked.connect(lambda: self._remove_selected_rows(self.op_filters_table))
-        filter_buttons.addWidget(add)
-        filter_buttons.addWidget(remove)
-        filter_buttons.addStretch()
-        op_layout.addLayout(filter_buttons)
-        layout.addWidget(self.op_group)
+        right = QVBoxLayout()
+        self.conditions_label = QLabel()
+        right.addWidget(self.conditions_label)
+        self.conditions_table = QTableWidget(0, 3)
+        self.conditions_table.setHorizontalHeaderLabels(["Parameter", "Min", "Max"])
+        self.conditions_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.conditions_table.verticalHeader().setVisible(False)
+        self.conditions_table.verticalHeader().setDefaultSectionSize(30)
+        self.conditions_table.setColumnWidth(1, 120)
+        self.conditions_table.setColumnWidth(2, 120)
+        self.conditions_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        right.addWidget(self.conditions_table, 1)
+        condition_buttons = QHBoxLayout()
+        self.add_condition_button = QPushButton("Add condition")
+        self.add_condition_button.clicked.connect(lambda: self._add_condition_row())
+        self.remove_condition_button = QPushButton("Remove")
+        self.remove_condition_button.clicked.connect(
+            lambda: self._remove_selected_rows(self.conditions_table))
+        condition_buttons.addWidget(self.add_condition_button)
+        condition_buttons.addWidget(self.remove_condition_button)
+        condition_buttons.addStretch()
+        right.addLayout(condition_buttons)
+        bounds_hint = QLabel("Rows with Min ≤ value ≤ Max are used; leave Min or Max empty for no limit.")
+        bounds_hint.setObjectName("hint")
+        bounds_hint.setWordWrap(True)
+        right.addWidget(bounds_hint)
+        groups_layout.addLayout(right, 1)
+        layout.addWidget(groups_box, 2)
+        self._show_group(-1)
+        return page
+
+    def _filtered_page(self) -> QWidget:
+        page, layout = self._page(
+            "Filtered charts",
+            "One chart per condition group (defined on the Statistics page): the rows that meet "
+            "the group's conditions are joined end to end and drawn against the joined time, "
+            "so the time axis is shifted. Dashed lines mark where the segments meet. "
+            f"At most {MAX_SERIES} parameters per chart.")
+        self.filtered_checklist = ParameterChecklist(self.parameters)
+        layout.addWidget(self.filtered_checklist, 1)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Layout:"))
+        self.filtered_layout_combo = QComboBox()
+        for code, name in LAYOUTS:
+            self.filtered_layout_combo.addItem(name, code)
+        row.addWidget(self.filtered_layout_combo)
+        row.addStretch()
+        layout.addLayout(row)
         return page
 
     def _trends_page(self) -> QWidget:
@@ -435,17 +468,120 @@ class ReportDialog(QDialog):
             combo.setCurrentText(current)
         return combo
 
-    def _add_filter_row(self, f: Optional[OperatingPointFilter] = None):
-        f = f or OperatingPointFilter(param=self.parameters[0] if self.parameters else "")
-        row = self.op_filters_table.rowCount()
-        self.op_filters_table.insertRow(row)
-        self.op_filters_table.setCellWidget(row, 0, self._combo(self.parameters, f.param))
-        self.op_filters_table.setCellWidget(row, 1, self._combo(["<", ">"], f.op))
-        value = QDoubleSpinBox()
-        value.setDecimals(4)
-        value.setRange(-1e12, 1e12)
-        value.setValue(f.value)
-        self.op_filters_table.setCellWidget(row, 2, value)
+    def _bound_edit(self, value: Optional[float]) -> QLineEdit:
+        edit = QLineEdit("" if value is None else f"{value:g}")
+        edit.setPlaceholderText("no limit")
+        edit.setValidator(QRegExpValidator(QRegExp(r"-?[0-9]*([.,][0-9]*)?([eE][-+]?[0-9]*)?"), edit))
+        return edit
+
+    @staticmethod
+    def _bound_value(edit: QLineEdit) -> Optional[float]:
+        text = edit.text().strip().replace(",", ".")
+        try:
+            return float(text) if text else None
+        except ValueError:
+            return None
+
+    def _add_condition_row(self, condition: Optional[RangeCondition] = None):
+        if self._group_row < 0:
+            return
+        condition = condition or RangeCondition(param=self.parameters[0] if self.parameters else "")
+        row = self.conditions_table.rowCount()
+        self.conditions_table.insertRow(row)
+        self.conditions_table.setCellWidget(row, 0, self._combo(self.parameters, condition.param))
+        self.conditions_table.setCellWidget(row, 1, self._bound_edit(condition.minimum))
+        self.conditions_table.setCellWidget(row, 2, self._bound_edit(condition.maximum))
+
+    def _condition_rows(self) -> List[RangeCondition]:
+        return [RangeCondition(param=self.conditions_table.cellWidget(row, 0).currentText(),
+                               minimum=self._bound_value(self.conditions_table.cellWidget(row, 1)),
+                               maximum=self._bound_value(self.conditions_table.cellWidget(row, 2)))
+                for row in range(self.conditions_table.rowCount())]
+
+    # ------------------------------------------------------------------
+    # Condition groups (the table shows the conditions of the selected group)
+    # ------------------------------------------------------------------
+    def _commit_group(self):
+        """Store the conditions table into the group it shows."""
+        if 0 <= self._group_row < len(self.groups):
+            self.groups[self._group_row].conditions = self._condition_rows()
+
+    def _show_group(self, row: int):
+        self._group_row = row if 0 <= row < len(self.groups) else -1
+        self.conditions_table.setRowCount(0)
+        has_group = self._group_row >= 0
+        if has_group:
+            for condition in self.groups[self._group_row].conditions:
+                self._add_condition_row(condition)
+            self.conditions_label.setText(
+                f"Conditions of '{self.groups[self._group_row].name}' (all must hold):")
+        else:
+            self.conditions_label.setText("Add a condition group to enter conditions.")
+        for widget in (self.conditions_table, self.add_condition_button, self.remove_condition_button):
+            widget.setEnabled(has_group)
+
+    def _on_group_selected(self, row: int):
+        self._commit_group()
+        self._show_group(row)
+
+    def _on_group_renamed(self, item: QListWidgetItem):
+        row = self.groups_list.row(item)
+        if 0 <= row < len(self.groups):
+            self.groups[row].name = item.text().strip()
+            if row == self._group_row:
+                self.conditions_label.setText(f"Conditions of '{self.groups[row].name}' (all must hold):")
+
+    def _set_groups(self, groups: List[ConditionGroup], current: int = 0):
+        self.groups = groups
+        self._group_row = -1
+        self.groups_list.blockSignals(True)
+        self.groups_list.clear()
+        for group in groups:
+            item = QListWidgetItem(group.name)
+            item.setFlags(item.flags() | Qt.ItemIsEditable)
+            self.groups_list.addItem(item)
+        self.groups_list.blockSignals(False)
+        current = min(current, len(groups) - 1)
+        self.groups_list.blockSignals(True)
+        self.groups_list.setCurrentRow(current)
+        self.groups_list.blockSignals(False)
+        self._show_group(current)
+
+    def _default_group_name(self) -> str:
+        template = texts(self.language_combo.currentData())["group_default"]
+        used = {g.name for g in self.groups}
+        n = len(self.groups) + 1
+        while template.format(n=n) in used:
+            n += 1
+        return template.format(n=n)
+
+    def _add_group(self):
+        self._commit_group()
+        groups = self.groups + [ConditionGroup(name=self._default_group_name())]
+        self._set_groups(groups, len(groups) - 1)
+        self._add_condition_row()
+
+    def _copy_group(self):
+        if self._group_row < 0:
+            return
+        self._commit_group()
+        source = self.groups[self._group_row]
+        copy = ConditionGroup(name=self._default_group_name(),
+                              conditions=[RangeCondition(c.param, c.minimum, c.maximum)
+                                          for c in source.conditions])
+        groups = self.groups + [copy]
+        self._set_groups(groups, len(groups) - 1)
+
+    def _remove_group(self):
+        row = self._group_row
+        if row < 0:
+            return
+        groups = self.groups[:row] + self.groups[row + 1:]
+        self._set_groups(groups, max(0, row - 1) if groups else -1)
+
+    def _read_groups(self) -> List[ConditionGroup]:
+        self._commit_group()
+        return [ConditionGroup(name=g.name, conditions=list(g.conditions)) for g in self.groups]
 
     def _add_trend_row(self, chart: TrendChart):
         row = self.trends_table.rowCount()
@@ -578,32 +714,25 @@ class ReportDialog(QDialog):
             self.all_radio.setChecked(True)
         self.summary_check.setChecked(config.summary_enabled)
 
-        self._set_section_checked(self.NAV_STATISTICS, config.statistics_enabled)
-        self.stats_checklist.set_checked(config.statistics_params)
-        op = config.operating_points
-        self.op_group.setChecked(op.enabled)
-        if op.control_param in self.parameters:
-            self.op_control_combo.setCurrentText(op.control_param)
-        self.op_values_edit.setText("; ".join(f"{v:g}" for v in op.values))
-        self.op_tolerance_spin.setValue(op.tolerance)
-        self.op_filters_table.setRowCount(0)
-        for f in op.filters:
-            self._add_filter_row(f)
-
-        self._set_section_checked(self.NAV_TRENDS, config.trends_enabled)
-        self._set_trend_rows(config.trends)
-
         self._set_section_checked(self.NAV_HISTOGRAMS, config.histograms_enabled)
         self.hist_checklist.set_checked(config.histogram_params)
         self.bins_spin.setValue(config.histogram_bins)
 
+        self._set_section_checked(self.NAV_TRENDS, config.trends_enabled)
+        self._set_trend_rows(config.trends)
+
+        self._set_section_checked(self.NAV_STATISTICS, config.statistics_enabled)
+        self.stats_checklist.set_checked(config.statistics_params)
+        self.whole_range_check.setChecked(config.statistics_whole_range)
+        self._set_groups([ConditionGroup(name=g.name, conditions=list(g.conditions))
+                          for g in config.condition_groups])
+
+        self._set_section_checked(self.NAV_FILTERED, config.filtered_charts_enabled)
+        self.filtered_checklist.set_checked(config.filtered_chart_params)
+        self.filtered_layout_combo.setCurrentIndex(
+            max(0, self.filtered_layout_combo.findData(config.filtered_chart_layout)))
+
     def _read_config(self) -> ReportConfig:
-        filters = []
-        for row in range(self.op_filters_table.rowCount()):
-            filters.append(OperatingPointFilter(
-                param=self.op_filters_table.cellWidget(row, 0).currentText(),
-                op=self.op_filters_table.cellWidget(row, 1).currentText(),
-                value=self.op_filters_table.cellWidget(row, 2).value()))
         return ReportConfig(
             title=self.title_edit.text().strip(),
             project=self.project_edit.text().strip(),
@@ -613,29 +742,19 @@ class ReportDialog(QDialog):
             language=self.language_combo.currentData(),
             scope=SCOPE_CURSORS if self.cursor_radio.isChecked() else SCOPE_ALL,
             summary_enabled=self.summary_check.isChecked(),
-            statistics_enabled=self._section_checked(self.NAV_STATISTICS),
-            statistics_params=self.stats_checklist.checked(),
-            operating_points=OperatingPoints(
-                enabled=self.op_group.isChecked(),
-                control_param=self.op_control_combo.currentText(),
-                values=self._parse_values(self.op_values_edit.text()) or [],
-                tolerance=self.op_tolerance_spin.value(),
-                filters=filters),
-            trends_enabled=self._section_checked(self.NAV_TRENDS),
-            trends=self._trend_rows(),
             histograms_enabled=self._section_checked(self.NAV_HISTOGRAMS),
             histogram_params=self.hist_checklist.checked(),
             histogram_bins=self.bins_spin.value(),
+            trends_enabled=self._section_checked(self.NAV_TRENDS),
+            trends=self._trend_rows(),
+            statistics_enabled=self._section_checked(self.NAV_STATISTICS),
+            statistics_params=self.stats_checklist.checked(),
+            statistics_whole_range=self.whole_range_check.isChecked(),
+            condition_groups=self._read_groups(),
+            filtered_charts_enabled=self._section_checked(self.NAV_FILTERED),
+            filtered_chart_params=self.filtered_checklist.checked(),
+            filtered_chart_layout=self.filtered_layout_combo.currentData(),
         )
-
-    @staticmethod
-    def _parse_values(text: str) -> Optional[List[float]]:
-        """'1000; 1500 2000' -> [1000, 1500, 2000]; None if a value is not a number."""
-        parts = [p for p in re.split(r"[;\s]+", text.strip()) if p]
-        try:
-            return [float(p.replace(",", ".")) for p in parts]
-        except ValueError:
-            return None
 
     # ------------------------------------------------------------------
     # Templates
@@ -690,17 +809,28 @@ class ReportDialog(QDialog):
     # Create
     # ==================================================================
     def _validate(self, config: ReportConfig) -> Optional[str]:
-        if config.statistics_enabled and not config.statistics_params:
-            return "Statistics is ticked but no parameter is selected."
-        if config.statistics_enabled and config.operating_points.enabled:
-            if self._parse_values(self.op_values_edit.text()) is None or not config.operating_points.values:
-                return "Enter the operating point values as numbers, e.g. 1000; 1500; 2000."
-        if config.trends_enabled and not any(c.y for c in config.trends):
-            return "Trends is ticked but no chart has Y parameters."
         if config.histograms_enabled and not config.histogram_params:
             return "Histograms is ticked but no parameter is selected."
-        if not (config.statistics_enabled or config.trends_enabled or config.histograms_enabled):
-            return "Tick at least one section (Statistics, Trends or Histograms) on the left."
+        if config.trends_enabled and not any(c.y for c in config.trends):
+            return "Trends is ticked but no chart has Y parameters."
+        if config.statistics_enabled and not config.statistics_params:
+            return "Statistics is ticked but no parameter is selected."
+        if config.filtered_charts_enabled:
+            if not config.filtered_chart_params:
+                return "Filtered charts is ticked but no parameter is selected."
+            if len(config.filtered_chart_params) > MAX_SERIES:
+                return f"Filtered charts: select at most {MAX_SERIES} parameters."
+            if not config.condition_groups:
+                return "Filtered charts is ticked but there is no condition group (Statistics page)."
+        if config.statistics_enabled or config.filtered_charts_enabled:
+            for group in config.condition_groups:
+                for c in group.conditions:
+                    if c.minimum is not None and c.maximum is not None and c.minimum > c.maximum:
+                        return (f"Condition group '{group.name}': the Min of {c.param} "
+                                f"is greater than its Max.")
+        if not (config.histograms_enabled or config.trends_enabled or config.statistics_enabled
+                or config.filtered_charts_enabled):
+            return "Tick at least one section (Histograms, Trends, Statistics or Filtered charts) on the left."
         return None
 
     def _on_create_clicked(self):

@@ -29,7 +29,6 @@ class Stats:
     mean: float
     maximum: float
     std: float
-    rms: float
 
 
 class ReportData:
@@ -102,8 +101,26 @@ def statistics(values: np.ndarray) -> Optional[Stats]:
         mean=float(np.mean(values)),
         maximum=float(np.max(values)),
         std=float(np.std(values)),
-        rms=float(np.sqrt(np.mean(values ** 2))),
     )
+
+
+def join_segments(t: np.ndarray, mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Times of the rows in `mask` with the gaps between their segments removed:
+    the segments are placed end to end, starting at 0 (one sample step apart).
+    Returns (times, start times of the 2nd, 3rd, ... segment).
+    """
+    idx = np.flatnonzero(mask)
+    if len(idx) == 0:
+        return np.empty(0), np.empty(0)
+    steps = np.diff(t)
+    steps = steps[np.isfinite(steps) & (steps > 0)]
+    sample_step = float(np.median(steps)) if len(steps) else 0.0
+    dt = np.diff(t[idx])
+    breaks = np.diff(idx) > 1
+    dt[breaks] = sample_step
+    joined = np.concatenate(([0.0], np.cumsum(dt)))
+    return joined, joined[1:][breaks]
 
 
 def envelope(t: np.ndarray, y: np.ndarray, buckets: int = 2000) -> Tuple[np.ndarray, np.ndarray]:

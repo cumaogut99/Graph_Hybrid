@@ -84,10 +84,13 @@ def _scales_compatible(series: Sequence[Tuple[np.ndarray, np.ndarray]]) -> bool:
 
 
 def time_trend(names: List[str], series: List[Tuple[np.ndarray, np.ndarray]],
-               datetime_axis: bool, labels: dict, layout: str = "auto") -> bytes:
+               datetime_axis: bool, labels: dict, layout: str = "auto",
+               x_label: Optional[str] = None, boundaries: Optional[np.ndarray] = None) -> bytes:
     """
     Parameters over time. layout "overlay": one panel; "stacked": a panel per
     parameter; "auto": one panel only if the scales fit, else stacked.
+    x_label replaces the time axis label; boundaries (X values) are marked
+    with thin vertical lines, e.g. where joined data segments meet.
     """
     names, series = names[:MAX_SERIES], series[:MAX_SERIES]
     if layout == "overlay":
@@ -102,6 +105,12 @@ def time_trend(names: List[str], series: List[Tuple[np.ndarray, np.ndarray]],
     axes = fig.subplots(panels, 1, sharex=True, squeeze=False)[:, 0]
 
     _time_axis(axes[-1], np.empty(0), datetime_axis, labels)  # labels the shared X axis
+    if x_label:
+        axes[-1].set_xlabel(x_label, color=INK_SECONDARY, fontsize=10)
+    if boundaries is not None and 0 < len(boundaries) <= 200:
+        for ax in axes:
+            for x in boundaries:
+                ax.axvline(x, color=AXIS, linewidth=0.7, linestyle=(0, (3, 3)), zorder=0)
     for i, (name, (t, y)) in enumerate(zip(names, series)):
         ax = axes[0] if shared else axes[i]
         ax.plot(t / 86400.0 if datetime_axis else t, y, color=SERIES_COLORS[i], linewidth=1.2, label=name)
