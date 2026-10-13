@@ -550,7 +550,7 @@ class TimeGraphWidget(QWidget):
                 self.current_cursor_mode = "dual"
                 logger.debug("Synced cursor mode to dual (permanent setting)")
 
-    def _initialize_signal_mapping(self, signal_names: list[str]):
+    def _initialize_signal_mapping(self, signal_names: List[str]):
         """
         Initializes or updates the signal-to-graph mapping for the new tabbed structure.
         By default, graphs start empty - user must manually select which signals to plot.

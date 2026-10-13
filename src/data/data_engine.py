@@ -165,7 +165,8 @@ class DataEngine:
             ET.SubElement(ch_elem, "Dt").text = str(1.0 / sample_rate)
 
         tree = ET.ElementTree(root)
-        ET.indent(tree, space="  ", level=0)
+        if hasattr(ET, "indent"):  # ET.indent requires Python 3.9+
+            ET.indent(tree, space="  ", level=0)
         tree.write(mpai_dir / "setup.xml", encoding="utf-8", xml_declaration=True)
 
     def _write_raw_stream(self, filepath: Path, data: np.ndarray, chunk_size_mb: int):
