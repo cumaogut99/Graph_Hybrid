@@ -27,6 +27,11 @@ if os.path.exists('icons'):
 if os.path.exists('lib'):
     datas.append(('lib', 'lib'))
 
+# Yükleme animasyonu JSON dosyasını ekle (loading_overlay.py bunu src/graphics altında arar)
+animation_file = os.path.join('src', 'graphics', 'Engine Animation.json')
+if os.path.exists(animation_file):
+    datas.append((animation_file, os.path.join('src', 'graphics')))
+
 # İkon dosyasını ekle
 if os.path.exists(icon_file):
     datas.append((icon_file, '.'))
