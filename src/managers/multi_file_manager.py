@@ -13,6 +13,8 @@ from typing import Any, Callable, Dict, List, Optional
 from PyQt5.QtWidgets import QTabWidget, QWidget, QMessageBox
 from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject, QTimer
 
+from src.utils.resources import resolve_icon_urls
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,7 +79,7 @@ class MultiFileManager(QObject):
         # NOT: MaximumWidth yok - sekmelerin hepsi görünür kalacak
         self.file_tab_widget.setMinimumWidth(400)  # Minimum genişlik garantisi
         
-        self.file_tab_widget.setStyleSheet("""
+        self.file_tab_widget.setStyleSheet(resolve_icon_urls("""
             QTabWidget::pane {
                 border: none;
                 background: transparent;
@@ -133,7 +135,7 @@ class MultiFileManager(QObject):
             QTabBar::close-button:pressed {
                 background-color: rgba(241, 112, 122, 0.9);
             }
-        """)
+        """))
         
         logger.debug("File tab widget created")
         return self.file_tab_widget

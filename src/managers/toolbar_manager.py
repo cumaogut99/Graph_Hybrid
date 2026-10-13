@@ -22,6 +22,7 @@ from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
 
 from src.ui.frameless_window import DRAG_AREA_PROPERTY, WindowControls
+from src.utils.resources import icon_url
 
 if TYPE_CHECKING:
     from ..widgets.time_graph_widget_refactored import TimeGraphWidget
@@ -298,12 +299,12 @@ class ToolbarManager(QObject):
                 background: rgba(53, 182, 196, 0.4);
             }}
             QSpinBox::up-arrow {{
-                image: url({os.path.abspath('icons/spin-plus.svg').replace(os.sep, '/')});
+                image: url({icon_url('spin-plus')});
                 width: 13px;
                 height: 13px;
             }}
             QSpinBox::down-arrow {{
-                image: url({os.path.abspath('icons/spin-minus.svg').replace(os.sep, '/')});
+                image: url({icon_url('spin-minus')});
                 width: 13px;
                 height: 13px;
             }}

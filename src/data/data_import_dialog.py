@@ -25,6 +25,7 @@ from src.data.data_validator import DataValidator
 from src.data.csv_format_detector import detect_csv_format
 from src.data.excel_to_csv import is_excel_file, list_sheets, excel_to_temp_csv, remove_temp_csv
 from src.utils.error_handler import ErrorHandler
+from src.utils.resources import icon_url, resolve_icon_urls
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QSplitter, QTableWidget, QTableWidgetItem,
     QGroupBox, QLabel, QComboBox, QSpinBox, QPushButton, QTextEdit, QCheckBox,
@@ -72,8 +73,7 @@ STEPPER_STYLE = """
                 width: 13px;
                 height: 13px;
             }
-""" % tuple(os.path.abspath(f'icons/{name}.svg').replace(os.sep, '/')
-            for name in ('spin-plus', 'spin-minus'))
+""" % (icon_url('spin-plus'), icon_url('spin-minus'))
 
 # "Zaman Formatı" choices -> setting passed to the converter
 TIME_FORMAT_CHOICES = {
@@ -1168,7 +1168,7 @@ class DataImportDialog(QDialog):
             
     def _apply_theme(self):
         """Yumuşak uzay teması - göze rahat."""
-        self.setStyleSheet("""
+        self.setStyleSheet(resolve_icon_urls("""
             QDialog {
                 background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                     stop: 0 #2a3441, stop: 1 #1e2832);
@@ -1358,7 +1358,7 @@ class DataImportDialog(QDialog):
                 width: 10px;
                 height: 10px;
             }
-        """ + STEPPER_STYLE)
+        """) + STEPPER_STYLE)
         
     def get_import_settings(self) -> Dict[str, Any]:
         """Import ayarlarını döndür."""

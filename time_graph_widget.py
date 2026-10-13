@@ -44,6 +44,7 @@ from src.ui.graph_advanced_settings_dialog import GraphAdvancedSettingsDialog
 from src.graphics.graph_container import GraphContainer
 from src.managers.status_bar_manager import StatusBarManager
 from src.graphics.loading_overlay import LoadingManager
+from src.utils.resources import icon_url
 from src.managers.correlations_panel_manager import CorrelationsPanelManager
 
 
@@ -376,7 +377,7 @@ class TimeGraphWidget(QWidget):
                 font-weight: bold;
             }}
             QTabBar::close-button {{
-                image: url({os.path.abspath('icons/x.svg').replace(os.sep, '/')});
+                image: url({icon_url('x')});
                 subcontrol-position: right;
                 subcontrol-origin: padding;
                 margin: 1px;
