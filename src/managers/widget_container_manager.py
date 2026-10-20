@@ -113,7 +113,7 @@ class WidgetContainerManager(QObject):
             file_index: Dosya indeksi
         """
         if file_index not in self.widgets:
-            logger.error(f"No widget found for file {file_index}")
+            logger.warning(f"No widget found for file {file_index}")
             return
         
         old_index = self.active_widget_index

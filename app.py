@@ -112,24 +112,18 @@ except ImportError as e:
     print("Lütfen tüm gerekli modüllerin mevcut olduğundan emin olun.")
     sys.exit(1)
 
-# Setup logging - WARNING level for most modules, DEBUG only for cursor
+# Setup logging - only errors are logged. Lower levels (DEBUG/INFO/WARNING)
+# filled the log file with routine messages (one line per loaded signal etc.).
+_log_handlers = [logging.FileHandler('time_graph_app.log', encoding='utf-8')]
+if sys.stderr is not None:  # windowed PyInstaller builds have no stderr
+    _log_handlers.append(logging.StreamHandler())
 logging.basicConfig(
-    level=logging.WARNING,  # Default to WARNING level
+    level=logging.ERROR,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('time_graph_app.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    handlers=_log_handlers,
+    force=True,  # replace any handlers an imported module may have set up
 )
 logger = logging.getLogger(__name__)
-
-# Cursor debug logging disabled - 4-cursor issue is resolved
-# logging.getLogger('src.managers.cursor_manager').setLevel(logging.DEBUG)
-
-# Enable INFO logging for data operations to track loading/cancellation
-logging.getLogger('app.data_operations').setLevel(logging.INFO)
-logging.getLogger('src.data.data_loader').setLevel(logging.INFO)
-logging.getLogger('src.data.csv_to_mpai_converter').setLevel(logging.INFO)
 
 # ✅ REFACTORED: OldDataLoader sınıfı kaldırıldı (445 satır)
 # DataLoader artık src.data.data_loader modülünden import ediliyor (satır 69)

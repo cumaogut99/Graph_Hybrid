@@ -62,26 +62,10 @@ class ErrorHandler(QObject):
     def _setup_detailed_logging(self):
         """Detaylı logging sistemi kurulumu."""
         # Ana logger
+        # Only errors are logged; they go to the application log through the
+        # root logger (no separate errors.log / debug.log files)
         self.logger = logging.getLogger('ErrorHandler')
-        self.logger.setLevel(logging.DEBUG)
-        
-        # Hata dosyası handler
-        error_handler = logging.FileHandler('errors.log', encoding='utf-8')
-        error_handler.setLevel(logging.ERROR)
-        
-        # Debug dosyası handler
-        debug_handler = logging.FileHandler('debug.log', encoding='utf-8')
-        debug_handler.setLevel(logging.DEBUG)
-        
-        # Formatter
-        detailed_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s'
-        )
-        error_handler.setFormatter(detailed_formatter)
-        debug_handler.setFormatter(detailed_formatter)
-        
-        self.logger.addHandler(error_handler)
-        self.logger.addHandler(debug_handler)
+        self.logger.setLevel(logging.ERROR)
     
     def handle_error(self, 
                     error: Exception, 

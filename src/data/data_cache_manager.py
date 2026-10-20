@@ -102,6 +102,7 @@ class DataCacheManager:
             else:
                 df = pl.read_csv(
                     csv_path,
+                    encoding='utf8-lossy',  # non-UTF-8 files (e.g. "°C" in cp1254)
                     infer_schema_length=infer_schema_length,
                     try_parse_dates=True
                 )
@@ -285,6 +286,7 @@ class DataCacheManager:
             # Fallback to normal read
             return pl.read_csv(
                 csv_path,
+                encoding='utf8-lossy',
                 infer_schema_length=infer_schema_length,
                 try_parse_dates=True
             )

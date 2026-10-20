@@ -478,7 +478,7 @@ def create_project_from_csv(
         logger.info(f"Creating project from CSV: {csv_path}")
         
         # Load CSV
-        df = pl.read_csv(csv_path)
+        df = pl.read_csv(csv_path, encoding='utf8-lossy')
         
         # Create metadata
         metadata = {
