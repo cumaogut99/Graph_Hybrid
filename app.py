@@ -18,6 +18,14 @@ Veri analizi ve görselleştirme için gelişmiş araçlar sunar.
 import sys
 import os
 
+# Load the polars binary that fits this CPU (the compatible one on
+# Pentium/Celeron without AVX2) before anything imports polars
+try:
+    from src.utils.polars_runtime import select_polars_runtime
+    select_polars_runtime()
+except Exception:
+    pass
+
 # FIX: Add Arrow DLLs to PATH before importing C++ module
 # First, add local lib/ folder where we moved Arrow/Parquet DLLs
 _app_dir = os.path.dirname(os.path.abspath(__file__))

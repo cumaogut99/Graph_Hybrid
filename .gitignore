@@ -55,3 +55,6 @@ dist/
 .DS_Store
 Thumbs.db
 
+
+# polars-lts-cpu binary (tools/fetch_polars_compat.py)
+vendor/

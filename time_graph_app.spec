@@ -5,7 +5,9 @@ PyInstaller Spec Dosyası - Time Graph Uygulaması
 ================================================
 
 Bu dosya Time Graph uygulamasını EXE formatına çevirmek için kullanılır.
-Kullanım: pyinstaller time_graph_app.spec
+Kullanım:
+    python tools/fetch_polars_compat.py   # Pentium/Celeron desteği (polars sürümü değişince tekrar)
+    pyinstaller time_graph_app.spec
 """
 
 import os
@@ -31,6 +33,25 @@ if os.path.exists('lib'):
 animation_file = os.path.join('src', 'graphics', 'Engine Animation.json')
 if os.path.exists(animation_file):
     datas.append((animation_file, os.path.join('src', 'graphics')))
+
+# Eski işlemciler (Pentium/Celeron, AVX2 yok) için polars-lts-cpu binary'si.
+# Önce çalıştırın: python tools/fetch_polars_compat.py
+# src/utils/polars_runtime.py açılışta işlemciye göre hangisinin yükleneceğini seçer.
+compat_dir = os.path.join('vendor', 'polars_compat')
+if os.path.isdir(compat_dir):
+    from importlib.metadata import version as _pkg_version
+    with open(os.path.join(compat_dir, 'VERSION'), encoding='utf-8') as f:
+        compat_version = f.read().strip()
+    if compat_version != _pkg_version('polars'):
+        raise SystemExit(
+            f"vendor/polars_compat polars {compat_version} için, kurulu polars "
+            f"{_pkg_version('polars')}. Yeniden çalıştırın: python tools/fetch_polars_compat.py"
+        )
+    # datas olarak (binaries değil): UPX ve bağımlılık analizi dışında kalsın
+    datas.append((compat_dir, 'polars_compat'))
+else:
+    print("UYARI: vendor/polars_compat yok - EXE AVX2 olmayan işlemcilerde (Pentium/Celeron) "
+          "çalışmayacak. Önce: python tools/fetch_polars_compat.py")
 
 # İkon dosyasını ekle
 if os.path.exists(icon_file):
