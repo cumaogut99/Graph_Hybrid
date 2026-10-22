@@ -85,6 +85,12 @@ class SignalProcessor(QObject):
         # This prevents corruption of the metadata-only signal_data structure
         self._downsampled_cache = {}
         self._downsampled_cache_max_size = 50  # Keep 50 signals cached
+
+        # Active range filter: time segments joined into one timeline, and
+        # the signals not filtered yet (filtered on first use, see
+        # apply_segment_filter)
+        self._filter_segments = None
+        self._filter_pending = set()
         
     def process_data(self, df, normalize: bool = False, time_column: Optional[str] = None) -> Dict[str, Dict]:
         """
@@ -579,6 +585,7 @@ class SignalProcessor(QObject):
         For regular signals: Returns cached data
         """
         with QMutexLocker(self.mutex):
+            self._ensure_filtered([name])
             data = self.signal_data.get(name, {})
             
             # Check if this is a disk-based calculated parameter
@@ -619,6 +626,7 @@ class SignalProcessor(QObject):
                 only some signals or only the names should not ask for all.
         """
         with QMutexLocker(self.mutex):
+            self._ensure_filtered(names)
             result = {}
             if names is None:
                 items = self.signal_data.items()
@@ -704,6 +712,7 @@ class SignalProcessor(QObject):
             Returns None if signal not found
         """
         with QMutexLocker(self.mutex):
+            self._ensure_filtered([signal_name])
             return self._get_downsampled_view_internal(signal_name, target_points)
     
     def _get_downsampled_view_internal(self, signal_name: str, target_points: int = 4000) -> Optional[Dict[str, np.ndarray]]:
@@ -968,6 +977,109 @@ class SignalProcessor(QObject):
                 else:
                     logger.warning(f"Signal '{signal_name}' not found in signal_data, skipping filtered data update")
     
+    def apply_segment_filter(self, time_segments: List[Tuple[float, float]],
+                             names: Optional[List[str]] = None):
+        """
+        Apply a range filter: only the time segments are shown, joined into
+        one continuous timeline.
+
+        Only the given signals (the plotted ones) are filtered now; every
+        other signal is filtered when it is first used. Filtering all
+        channels at once took seconds for files with 1000+ channels.
+        """
+        with QMutexLocker(self.mutex):
+            self._filter_segments = list(time_segments)
+            self._filter_pending = set(self.signal_data)
+            self._ensure_filtered(names or [])
+
+    def _ensure_filtered(self, names) -> None:
+        """Apply the active range filter to these signals if not done yet."""
+        if not self._filter_segments or not self._filter_pending:
+            return
+        with QMutexLocker(self.mutex):
+            if names is None:
+                names = list(self._filter_pending)
+            elif isinstance(names, str):
+                names = [names]
+            filtered = {}
+            for name in names:
+                if name not in self._filter_pending:
+                    continue
+                self._filter_pending.discard(name)
+                data = self._concatenate_segments(name, self._filter_segments)
+                if data is not None:
+                    filtered[name] = data
+            if filtered:
+                self.set_filtered_data(filtered)
+
+    def _concatenate_segments(self, name: str,
+                              time_segments: List[Tuple[float, float]]) -> Optional[Dict]:
+        """
+        Join the signal's data inside the time segments into one continuous
+        timeline: {'time': x, 'values': y}, or None if no data is inside.
+        """
+        info = self.signal_data.get(name)
+        if not info:
+            return None
+        metadata = info.get('metadata', {})
+        # The signal's own reader: a calculated parameter has its own MPAI
+        reader = info.get('mpai_reader') if self._is_file_backed(info) else None
+        time_col = info.get('time_column')
+
+        if reader is not None and time_col:
+            full_count = metadata.get('full_count') or info.get('row_count') or 0
+            x_all = y_all = None
+        else:
+            x_all = np.asarray(info.get('x_data', []), dtype=np.float64)
+            y_all = np.asarray(info.get('y_data', []), dtype=np.float64)
+            full_count = len(x_all)
+
+        # Sample interval, used to space consecutive segments on the joined timeline
+        full_time_range = metadata.get('full_time_range')
+        if full_time_range and len(full_time_range) == 2 and full_count > 1:
+            start_time_meta = full_time_range[0]
+            sample_dt = (full_time_range[1] - full_time_range[0]) / (full_count - 1)
+        else:
+            start_time_meta = 0.0
+            sample_dt = float(np.median(np.diff(x_all))) if x_all is not None and len(x_all) > 1 else 0.0
+
+        parts_x, parts_y = [], []
+        current_time_offset = 0.0
+        for segment_start, segment_end in time_segments:
+            if reader is not None and time_col:
+                if sample_dt <= 0:
+                    return None
+                # Segment bounds are the times of the first and last
+                # matching samples: round (not truncate) and include both
+                start_row = max(0, int(round((segment_start - start_time_meta) / sample_dt)))
+                end_row = min(full_count, int(round((segment_end - start_time_meta) / sample_dt)) + 1)
+                row_count = max(1, end_row - start_row)
+                segment_x = np.asarray(reader.load_column_slice(time_col, start_row, row_count), dtype=np.float64)
+                segment_y = np.asarray(reader.load_column_slice(info.get('column_name', name), start_row, row_count), dtype=np.float64)
+            else:
+                mask = (x_all >= segment_start) & (x_all <= segment_end)
+                segment_x = x_all[mask]
+                segment_y = y_all[mask]
+
+            n = min(len(segment_x), len(segment_y))
+            if n == 0:
+                continue
+            segment_x = segment_x[:n]
+            if not parts_x:
+                # First segment starts at 0
+                adjusted_x = segment_x - segment_x[0]
+            else:
+                # Subsequent segments continue one sample interval after the
+                # previous one ended (no duplicate time at the joint)
+                adjusted_x = (segment_x - segment_x[0]) + current_time_offset + sample_dt
+            current_time_offset = adjusted_x[-1]
+            parts_x.append(adjusted_x)
+            parts_y.append(segment_y[:n])
+
+        if not parts_x:
+            return None
+        return {'time': np.concatenate(parts_x), 'values': np.concatenate(parts_y)}
+
     def restore_original_data(self):
         """
         Restore all signals to their original unfiltered state.
@@ -985,6 +1097,9 @@ class SignalProcessor(QObject):
                     self._clear_cache(signal_name)
 
                     logger.debug(f"Restored original data for signal '{signal_name}' with {len(original_data['y_data'])} points")
+
+            self._filter_segments = None
+            self._filter_pending.clear()
 
             # File-backed signals read from the MPAI file again
             for info in self.signal_data.values():
@@ -1156,6 +1271,7 @@ class SignalProcessor(QObject):
             Dict of signal_name -> statistics_dict
         """
         with QMutexLocker(self.mutex):
+            self._ensure_filtered(signal_names)
             if signal_names is None:
                 signal_names = list(self.signal_data.keys())
             
@@ -1517,6 +1633,7 @@ class SignalProcessor(QObject):
         other_signals = []
         
         with QMutexLocker(self.mutex):
+            self._ensure_filtered(signal_names)
             for name in signal_names:
                 if name not in self.signal_data:
                     continue
@@ -1622,6 +1739,7 @@ class SignalProcessor(QObject):
         In-memory data (CSV, range-filtered timeline) is searched directly.
         """
         with QMutexLocker(self.mutex):
+            self._ensure_filtered([signal_name])
             info = self.signal_data.get(signal_name)
             if not info:
                 return None
@@ -1661,6 +1779,7 @@ class SignalProcessor(QObject):
         logger.debug(f"get_signal_at_time called: signal={signal_name}, time={time_point}")
         
         with QMutexLocker(self.mutex):
+            self._ensure_filtered([signal_name])
             if signal_name not in self.signal_data:
                 logger.warning(f"Signal {signal_name} not found in signal_data")
                 return None
@@ -1818,6 +1937,7 @@ class SignalProcessor(QObject):
         downsampled min/max view for drawing, which must not be used for that.
         """
         with QMutexLocker(self.mutex):
+            self._ensure_filtered([signal_name])
             info = self.signal_data.get(signal_name)
             if info is None:
                 return None
@@ -1888,6 +2008,7 @@ class SignalProcessor(QObject):
             Dict with x_data, y_data, and statistics for the range
         """
         with QMutexLocker(self.mutex):
+            self._ensure_filtered([signal_name])
             if signal_name not in self.signal_data:
                 return None
             
@@ -1975,6 +2096,8 @@ class SignalProcessor(QObject):
             self.signal_data.clear()
             self.original_signal_data.clear()
             self.normalized_data.clear()
+            self._filter_segments = None
+            self._filter_pending.clear()
             self.statistics_cache.clear()
             
             # PERFORMANCE: Clear Polars cache
@@ -2026,6 +2149,7 @@ class SignalProcessor(QObject):
         Returns:
             Tuple of (x_data, y_data) optimized for the view range, or None
         """
+        self._ensure_filtered([signal_name])
         if signal_name not in self.signal_data:
             return None
         
@@ -2124,6 +2248,7 @@ class SignalProcessor(QObject):
             logger.warning("[LOD] No time column available for range loading")
             return None
         
+        self._ensure_filtered([signal_name])
         if signal_name not in self.signal_data:
             return None
         
