@@ -580,8 +580,15 @@ class TimeGraphWidget(QWidget):
         self._suppress_statistics_updates = True
         logger.debug("[PERF] Statistics updates suppressed for redraw")
         
-        all_signals = self.signal_processor.get_all_signals()
-        all_signal_names = sorted(list(all_signals.keys()))
+        # Prepare data only for the plotted signals (files can have 1000+ channels)
+        all_signal_names = sorted(self.signal_processor.get_signal_names())
+        plotted_names = {
+            name
+            for tab_mapping in self.graph_signal_mapping.values()
+            for signal_names in tab_mapping.values()
+            for name in signal_names
+        }
+        all_signals = self.signal_processor.get_all_signals(list(plotted_names))
         logger.info(f"[PERF] Got {len(all_signals)} signals in {(time.time()-start_time)*1000:.1f}ms")
 
         # Store current cursor mode before redrawing
@@ -925,8 +932,7 @@ class TimeGraphWidget(QWidget):
     
     def _on_filters_requested(self):
         """Open the Advanced Settings (range filter) dialog; applies to all graphs."""
-        all_signals_data = self.signal_processor.get_all_signals()
-        all_signals = list(all_signals_data.keys()) if all_signals_data else []
+        all_signals = self.signal_processor.get_signal_names()
         if not all_signals:
             QMessageBox.information(self, "Range Filters", "Load a data file first.")
             return
@@ -1309,7 +1315,7 @@ class TimeGraphWidget(QWidget):
     # Data processing methods
     def _apply_normalization(self):
         """Apply normalization to all signals."""
-        signal_names = list(self.signal_processor.get_all_signals().keys())
+        signal_names = self.signal_processor.get_signal_names()
         normalized_data = self.signal_processor.apply_normalization(signal_names)
         
         for signal_name, y_data in normalized_data.items():
@@ -1321,7 +1327,7 @@ class TimeGraphWidget(QWidget):
     
     def _remove_normalization(self):
         """Remove normalization from all signals."""
-        signal_names = list(self.signal_processor.get_all_signals().keys())
+        signal_names = self.signal_processor.get_signal_names()
         original_data = self.signal_processor.remove_normalization(signal_names)
         
         for signal_name, y_data in original_data.items():
@@ -1651,8 +1657,9 @@ class TimeGraphWidget(QWidget):
                 msg.exec_()
 
         try:
+            # Only the filtered parameters are needed (all share one time base)
             self.filter_manager.calculate_filter_segments_threaded(
-                self.signal_processor.get_all_signals(),
+                self.signal_processor.get_all_signals([c['parameter'] for c in conditions]),
                 conditions,
                 on_segments_calculated,
             )
@@ -1914,10 +1921,7 @@ class TimeGraphWidget(QWidget):
         """Handle color changes for a specific signal from the statistics panel."""
         logger.info(f"Color change requested for signal '{signal_name}' to {new_color}")
         
-        all_signals = self.signal_processor.get_all_signals()
-        all_signal_names = sorted(list(all_signals.keys()))
-        
-        logger.debug(f"Available signals: {all_signal_names}")
+        all_signal_names = sorted(self.signal_processor.get_signal_names())
         
         if signal_name in all_signal_names:
             signal_index = all_signal_names.index(signal_name)
@@ -2222,7 +2226,7 @@ class TimeGraphWidget(QWidget):
                     color = active_container.plot_manager.get_signal_color(graph_idx, signal_name)
                     if not color:
                         # Fallback: use theme manager to get color by signal index
-                        all_signals = list(self.signal_processor.get_all_signals().keys())
+                        all_signals = self.signal_processor.get_signal_names()
                         if signal_name in all_signals:
                             signal_index = all_signals.index(signal_name)
                             color = self.theme_manager.get_signal_color(signal_index)
@@ -2318,7 +2322,7 @@ class TimeGraphWidget(QWidget):
                     for plot_index, graph_config in enumerate(tab_config['graphs']):
                         if 'signals' in graph_config:
                             # Mevcut sinyalleri kontrol et
-                            all_signals = self.signal_processor.get_all_signals()
+                            all_signals = set(self.signal_processor.get_signal_names())
                             logger.info(f"[LAYOUT] Tab {i}, Graph {plot_index}: Restoring signals {graph_config['signals']}")
                             logger.info(f"[LAYOUT] Available signals: {len(all_signals)} signals")
                             

@@ -26,6 +26,40 @@ logger = logging.getLogger(__name__)
 DEFAULT_CHUNK_SIZE = 100_000
 
 
+def compile_formula(formula: str, param_names: List[str]):
+    """
+    Turn a user formula into a Python expression that eval() can run.
+
+    - Parameter names are replaced by placeholder variables, so names that are
+      not valid Python identifiers work: "ms4_GPD_st-MKU1" would otherwise be
+      read as "ms4_GPD_st - MKU1". Longest names are matched first and a name
+      must not be part of a longer word ("EGT" does not match in "EGT2").
+    - "^" means power (as in Excel), not Python's bitwise XOR.
+
+    Returns:
+        (expression, {placeholder: parameter_name}) for the parameters used
+    """
+    names = sorted({n for n in param_names if n}, key=len, reverse=True)
+    if not names:
+        return formula.replace('^', '**'), {}
+
+    pattern = re.compile(
+        r'(?<![\w.])(' + '|'.join(re.escape(n) for n in names) + r')(?!\w)'
+    )
+    placeholders = {}
+    by_name = {}
+
+    def substitute(match):
+        name = match.group(1)
+        if name not in by_name:
+            by_name[name] = f'__p{len(by_name)}__'
+            placeholders[by_name[name]] = name
+        return by_name[name]
+
+    expression = pattern.sub(substitute, formula).replace('^', '**')
+    return expression, placeholders
+
+
 class StreamingParamWorker(QThread):
     """
     Background worker for streaming calculation of derived parameters.
@@ -44,7 +78,7 @@ class StreamingParamWorker(QThread):
     finished = Signal(str, str)  # param_name, output_path
     error = Signal(str)  # error message
     
-    def __init__(self, 
+    def __init__(self,
                  param_name: str,
                  formula: str,
                  used_params: List[str],
@@ -73,6 +107,7 @@ class StreamingParamWorker(QThread):
         self.time_column = time_column
         self.output_dir = Path(output_dir)
         self.chunk_size = chunk_size
+        self._expression, self._placeholders = compile_formula(formula, used_params)
         
         self._cancelled = False
         
@@ -130,14 +165,17 @@ class StreamingParamWorker(QThread):
         # 5. Process in chunks
         num_chunks = (row_count + self.chunk_size - 1) // self.chunk_size
         
+        def abort(message):
+            writer.close()
+            # Clean up partial file
+            if output_mpai_path.exists():
+                import shutil
+                shutil.rmtree(output_mpai_path, ignore_errors=True)
+            self.error.emit(message)
+
         for chunk_idx in range(num_chunks):
             if self._cancelled:
-                writer.close()
-                # Clean up partial file
-                if output_mpai_path.exists():
-                    import shutil
-                    shutil.rmtree(output_mpai_path)
-                self.error.emit("Calculation cancelled")
+                abort("Calculation cancelled")
                 return
                 
             chunk_start = chunk_idx * self.chunk_size
@@ -160,10 +198,10 @@ class StreamingParamWorker(QThread):
                 
                 # Evaluate formula on this chunk
                 result_chunk = self._evaluate_formula(param_data)
-                
-                if result_chunk is None or len(result_chunk) == 0:
-                    logger.warning(f"[STREAM CALC] Empty result for chunk {chunk_idx}")
-                    continue
+                if result_chunk.shape != (chunk_len,):
+                    raise ValueError(
+                        f"formula result has {result_chunk.size} values, expected {chunk_len}"
+                    )
                     
                 # Write chunk to output
                 writer.write_chunk({
@@ -171,9 +209,11 @@ class StreamingParamWorker(QThread):
                 })
                 
             except Exception as e:
+                # A skipped chunk would shift every later value in time (and
+                # an all-failed calculation left an empty, unreadable file)
                 logger.error(f"[STREAM CALC] Chunk {chunk_idx} error: {e}")
-                # Continue with next chunk rather than failing entirely
-                continue
+                abort(f"Formula could not be calculated: {e}")
+                return
                 
         # 6. Finalize
         writer.close()
@@ -183,40 +223,41 @@ class StreamingParamWorker(QThread):
         
         self.finished.emit(self.param_name, str(output_mpai_path))
         
-    def _evaluate_formula(self, param_data: Dict[str, np.ndarray]) -> Optional[np.ndarray]:
+    def _evaluate_formula(self, param_data: Dict[str, np.ndarray]) -> np.ndarray:
         """
-        Safely evaluate the formula on chunk data.
+        Evaluate the formula on chunk data.
         
         Args:
             param_data: Dict mapping parameter names to numpy arrays
             
         Returns:
-            Result array or None on error
+            Result array (raises on an invalid formula)
         """
-        try:
-            # Create safe evaluation environment
-            safe_dict = {
-                'np': np,
-                '__builtins__': {},
-            }
-            safe_dict.update(param_data)
-            
-            # Evaluate
-            result = eval(self.formula, safe_dict)
-            
-            # Ensure result is array
-            if isinstance(result, np.ndarray):
-                return result
-            elif np.isscalar(result):
-                # Scalar result - broadcast to array size
-                first_param = next(iter(param_data.values()))
-                return np.full(len(first_param), result, dtype=np.float64)
-            else:
-                return np.asarray(result, dtype=np.float64)
-                
-        except Exception as e:
-            logger.error(f"[STREAM CALC] Formula evaluation error: {e}")
-            return None
+        return evaluate_formula(self._expression, self._placeholders, param_data)
+
+
+def evaluate_formula(expression: str, placeholders: Dict[str, str],
+                     param_data: Dict[str, np.ndarray]) -> np.ndarray:
+    """
+    Evaluate an expression from compile_formula() on parameter arrays.
+
+    Returns a float64 array as long as the parameter arrays (a scalar result
+    is repeated).
+    """
+    safe_dict = {
+        'np': np,
+        '__builtins__': {},
+    }
+    for placeholder, name in placeholders.items():
+        safe_dict[placeholder] = np.asarray(param_data[name], dtype=np.float64)
+
+    result = eval(expression, safe_dict)
+
+    length = len(next(iter(param_data.values())))
+    result = np.asarray(result, dtype=np.float64)
+    if result.ndim == 0:
+        result = np.full(length, float(result))
+    return result
 
 
 def detect_streaming_incompatible(formula: str) -> List[str]:

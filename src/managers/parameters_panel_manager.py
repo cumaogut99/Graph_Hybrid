@@ -318,9 +318,12 @@ class ParametersPanelManager(QObject):
     
     def _on_calc_progress(self, percentage: int, message: str):
         """Update progress dialog during streaming calculation."""
-        if hasattr(self, '_progress_dialog') and self._progress_dialog:
-            self._progress_dialog.setValue(percentage)
-            self._progress_dialog.setLabelText(message)
+        dialog = getattr(self, '_progress_dialog', None)
+        if dialog:
+            # setValue() of a modal progress dialog processes events, which can
+            # run _on_calc_finished and clear self._progress_dialog meanwhile
+            dialog.setValue(percentage)
+            dialog.setLabelText(message)
     
     def _on_calc_finished(self, param_name: str, output_path: str):
         """Handle successful completion of streaming calculation."""

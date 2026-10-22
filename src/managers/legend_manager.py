@@ -298,6 +298,9 @@ class LegendManager(QObject):
         """Update legend values based on current cursor position or latest data."""
         if not self.parent:
             return
+        # Runs every 100 ms: skip when nothing is shown
+        if not self.legend_items or not (self.legend_panel and self.legend_panel.isVisible()):
+            return
 
         try:
             # Get cursor position
@@ -307,7 +310,8 @@ class LegendManager(QObject):
 
             # Get signal data if available
             if hasattr(self.parent, 'signal_processor'):
-                signal_data = self.parent.signal_processor.get_all_signals()
+                # Only the signals in the legend, not every channel of the file
+                signal_data = self.parent.signal_processor.get_all_signals(list(self.legend_items))
                 if signal_data:
                     self.update_values_from_data(signal_data, cursor_pos)
                     

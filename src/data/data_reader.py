@@ -107,10 +107,9 @@ class MpaiDirectoryReader:
         return len(self.channels)  # Physical columns only
         
     def get_row_count(self) -> int:
-        if not self.channels:
-            return 0
-        # Return max row count
-        return max(ch["sample_count"] for ch in self.channels.values())
+        # Max sample count over the channels, computed once in _open_streams
+        # (called for every data access; files can have 1000+ channels)
+        return self._row_count
         
     def load_column_slice(self, col_name: str, start: int, length: int) -> Union[List[float], np.ndarray]:
         """
@@ -232,6 +231,7 @@ class MpaiDirectoryReader:
         Opens memory maps for all channels.
         CRITICAL: This does NOT load data into RAM. It just maps virtual address space.
         """
+        self._row_count = 0
         for ch_id, ch_info in self.channels.items():
             # 1. Map Raw Binary File
             bin_path = ch_info["bin_path"]
@@ -240,21 +240,26 @@ class MpaiDirectoryReader:
                 file_size = bin_path.stat().st_size
                 n_samples = file_size // ch_info["bytes_per_sample"]
                 ch_info["sample_count"] = n_samples
+                self._row_count = max(self._row_count, n_samples)
                 
                 # Create memory map (Read-Only, Copy-On-Write is default for 'r' usually, here 'r' means read-only)
-                # We use 'r' mode to ensure we don't accidentally write
-                ch_info["mmap_bin"] = np.memmap(
-                    bin_path, 
-                    dtype=ch_info["dtype"], 
-                    mode='r', 
-                    shape=(n_samples,)
-                )
+                # We use 'r' mode to ensure we don't accidentally write.
+                # An empty file can't be memory mapped.
+                if n_samples == 0:
+                    ch_info["mmap_bin"] = np.zeros(0, dtype=ch_info["dtype"])
+                else:
+                    ch_info["mmap_bin"] = np.memmap(
+                        bin_path, 
+                        dtype=ch_info["dtype"], 
+                        mode='r', 
+                        shape=(n_samples,)
+                    )
             else:
                 logger.error(f"Bin file missing for Ch {ch_id}: {bin_path}")
                 
             # 2. Map Reduced File
             red_path = ch_info["red_path"]
-            if red_path.exists():
+            if red_path.exists() and red_path.stat().st_size >= 32:
                 file_size_red = red_path.stat().st_size
                 # Each struct is 4 doubles (32 bytes)
                 n_blocks = file_size_red // 32
@@ -272,9 +277,7 @@ class MpaiDirectoryReader:
         if not self.channels:
             return 0.0, 0.0
         
-        # Get max sample count across all channels
-        max_samples = max(c["sample_count"] for c in self.channels.values())
-        duration = max_samples * self.dt
+        duration = self._row_count * self.dt
         return self.t0, self.t0 + duration
 
     # =========================================================================

@@ -306,7 +306,7 @@ class ParameterCalculatorDialog(QDialog):
         right_layout.addWidget(formula_container)
         
         # Help text
-        help_text = QLabel("💡 Tip: Use parameter names directly in formulas.\nSupported: +, -, *, /, **, np.sin, np.cos, np.abs, etc.")
+        help_text = QLabel("💡 Tip: Use parameter names directly in formulas.\nSupported: +, -, *, /, ** or ^ (power), np.sin, np.cos, np.abs, etc.")
         help_text.setStyleSheet("color: #a0c0e0; font-size: 9pt; padding: 5px;")
         help_text.setWordWrap(True)
         right_layout.addWidget(help_text)
@@ -456,8 +456,11 @@ class ParameterCalculatorDialog(QDialog):
             return
         
         try:
+            from src.data.streaming_param_worker import compile_formula, evaluate_formula
+
             # ✅ MEMORY OPT: Only load parameters that are used in the formula
-            used_params = [p for p in self.available_parameters if p in formula]
+            expression, placeholders = compile_formula(formula, self.available_parameters)
+            used_params = list(placeholders.values())
             if not used_params:
                 self.preview_label.setText("⚠️ Formula doesn't reference any parameters.")
                 self.preview_label.show()
@@ -493,7 +496,7 @@ class ParameterCalculatorDialog(QDialog):
                     logger.warning(f"Could not get data for parameter '{param}': {e}")
                     continue
             
-            if not param_data:
+            if len(param_data) < len(used_params):
                 self.preview_label.setText("⚠️ No parameter data available.")
                 self.preview_label.setStyleSheet(self.preview_label.styleSheet().replace("#a0c0e0", "#ff0000"))
                 self.preview_label.show()
@@ -503,22 +506,8 @@ class ParameterCalculatorDialog(QDialog):
             from src.data.streaming_param_worker import detect_streaming_incompatible
             incompatible = detect_streaming_incompatible(formula)
             
-            # Create safe evaluation environment
-            safe_dict = {
-                'np': np,
-                '__builtins__': {},
-            }
-            safe_dict.update(param_data)
-            
-            # Evaluate formula on sampled data
-            result = eval(formula, safe_dict)
-            
-            if isinstance(result, np.ndarray):
-                result_array = result
-            else:
-                # Scalar result - create array
-                first_data = next(iter(param_data.values()))
-                result_array = np.full(len(first_data), result, dtype=np.float64)
+            # Evaluate formula on sampled data (same evaluation as the calculation)
+            result_array = evaluate_formula(expression, placeholders, param_data)
             
             # Show preview
             preview_text = f"✅ Formula valid! (Preview from {len(result_array)} samples)\n"
@@ -579,7 +568,9 @@ class ParameterCalculatorDialog(QDialog):
         
         try:
             # ✅ STREAMING: Find used parameters without loading data
-            used_params = [p for p in self.available_parameters if p in formula]
+            from src.data.streaming_param_worker import compile_formula
+            _, placeholders = compile_formula(formula, self.available_parameters)
+            used_params = list(placeholders.values())
             if not used_params:
                 QMessageBox.warning(self, "No Parameters Used", 
                     "Formula doesn't reference any existing parameters.")

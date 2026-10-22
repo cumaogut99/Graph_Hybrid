@@ -459,16 +459,42 @@ class MpaiSignalData(SignalData):
             self.sample_rate = 1.0
         
         self.full_count = reader.get_row_count()
-        
-        # Load preview (first 10k points)
-        preview_count = min(self.full_count, 10000)
-        y_data = reader.load_column_slice(name, 0, preview_count)
-        
-        # Generate X data for preview
-        dt = 1.0 / self.sample_rate
-        x_data = np.arange(preview_count) * dt + self.start_time
-        
-        super().__init__(name, x_data, y_data, metadata={"mpai": True})
+
+        # The preview (first 10k points) is read on first use: reading and
+        # copying it for every channel at load took ~0.5 GB for 1000+ channels
+        self.name = name
+        self.metadata = {"mpai": True}
+        self.is_normalized = False
+        self.normalization_method = None
+        self.processing_history = []
+        self._preview = None
+        self._processed_y = None
+
+    def _load_preview(self):
+        if self._preview is None:
+            preview_count = min(self.full_count, 10000)
+            y_data = np.asarray(self.reader.load_column_slice(self.name, 0, preview_count))
+            x_data = np.arange(len(y_data)) / self.sample_rate + self.start_time
+            self._preview = (x_data, y_data)
+        return self._preview
+
+    @property
+    def x_data(self):
+        return self._load_preview()[0]
+
+    @property
+    def original_y_data(self):
+        return self._load_preview()[1]
+
+    @property
+    def processed_y_data(self):
+        if self._processed_y is None:
+            return self.original_y_data
+        return self._processed_y
+
+    @processed_y_data.setter
+    def processed_y_data(self, value):
+        self._processed_y = value
 
     def get_data_in_range(self, x_range: Optional[Tuple[float, float]] = None) -> Tuple[np.ndarray, np.ndarray]:
         """Get data from disk for the specified range."""

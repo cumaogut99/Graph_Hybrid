@@ -238,8 +238,12 @@ class SignalProcessor(QObject):
             # Apply normalization if requested (works for both paths on loaded data)
             if normalize:
                 self.apply_normalization(method=self.normalization_method)
-                
-            return self.get_all_signals()
+
+            # Signals are registered without data; their display data is
+            # prepared when they are plotted (get_all_signals(names)).
+            # Preparing every channel here took seconds and hundreds of MB
+            # for files with 1000+ channels.
+            return {name: {'metadata': data['metadata']} for name, data in self.signal_data.items()}
             
         finally:
             self.processing_finished.emit()
@@ -597,17 +601,31 @@ class SignalProcessor(QObject):
             
             return data.copy() if data else {}
     
-    def get_all_signals(self) -> Dict[str, Dict]:
+    def get_signal_names(self) -> List[str]:
+        """Names of all signals, without preparing their data."""
+        with QMutexLocker(self.mutex):
+            return list(self.signal_data.keys())
+
+    def get_all_signals(self, names: Optional[List[str]] = None) -> Dict[str, Dict]:
         """
         Get all signal data safely.
         
         For memory-mapped MPAI files: Returns DOWNSAMPLED view of FULL dataset
         For CSV files: Returns full data (legacy)
+
+        Args:
+            names: Only these signals (default: all). Preparing every signal
+                is expensive for files with many channels; callers that need
+                only some signals or only the names should not ask for all.
         """
         with QMutexLocker(self.mutex):
             result = {}
+            if names is None:
+                items = self.signal_data.items()
+            else:
+                items = [(n, self.signal_data[n]) for n in names if n in self.signal_data]
             
-            for name, data in self.signal_data.items():
+            for name, data in items:
                 # Check if this is a memory-mapped signal
                 if self._is_file_backed(data):
                     # ✅ CACHE CHECK: Return cached downsampled data if available
