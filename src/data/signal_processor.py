@@ -21,9 +21,6 @@ from src.data.signal_processing.normalization import SignalNormalizationMixin
 from src.data.signal_processing.statistics import SignalStatisticsMixin
 from src.data.signal_processing.queries import SignalQueriesMixin
 
-HAS_CPP_LOD = False  # Pure Python implementation
-tgcpp = None
-
 logger = logging.getLogger(__name__)
 
 class SignalProcessor(SignalViewsMixin, SignalFilteringMixin, SignalNormalizationMixin, SignalStatisticsMixin, SignalQueriesMixin, QObject):

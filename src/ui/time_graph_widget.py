@@ -625,31 +625,6 @@ class TimeGraphWidget(TabsMixin, CursorStatisticsMixin, GraphSettingsMixin, Filt
     # NOTE: _on_cursor_mode_changed removed - cursor mode is now permanently 'dual'
     # Cursor mode is initialized to 'dual' on startup and never changes
     
-    # Data processing methods
-    def _apply_normalization(self):
-        """Apply normalization to all signals."""
-        signal_names = self.signal_processor.get_signal_names()
-        normalized_data = self.signal_processor.apply_normalization(signal_names)
-        
-        for signal_name, y_data in normalized_data.items():
-            signal_data = self.signal_processor.get_signal_data(signal_name)
-            if signal_data and 'x_data' in signal_data:
-                self.plot_manager.update_signal_data(signal_name, signal_data['x_data'], y_data, 0)
-        
-        self._update_legend_values()
-    
-    def _remove_normalization(self):
-        """Remove normalization from all signals."""
-        signal_names = self.signal_processor.get_signal_names()
-        original_data = self.signal_processor.remove_normalization(signal_names)
-        
-        for signal_name, y_data in original_data.items():
-            signal_data = self.signal_processor.get_signal_data(signal_name)
-            if signal_data and 'x_data' in signal_data:
-                self.plot_manager.update_signal_data(signal_name, signal_data['x_data'], y_data, 0)
-        
-        self._update_legend_values()
-
     def _setup_connections(self):
         """Setup signal-slot connections for the widget."""
         # Toolbar connections

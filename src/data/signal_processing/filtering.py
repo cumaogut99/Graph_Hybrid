@@ -7,7 +7,6 @@ Part of SignalProcessor; moved from src/data/signal_processor.py without changes
 import logging
 from typing import Dict, List, Optional, Tuple
 import numpy as np
-import polars as pl
 from PyQt5.QtCore import QMutexLocker
 
 logger = logging.getLogger(__name__)
@@ -15,82 +14,6 @@ logger = logging.getLogger(__name__)
 
 class SignalFilteringMixin:
     """Range filters: filtered data, time segments and restoring the original data."""
-
-    def apply_polars_filter(self, conditions: List[Dict]) -> Optional[pl.DataFrame]:
-        """
-        PERFORMANCE: Polars native filtering - NumPy'dan 5-10x daha hızlı!
-        
-        Args:
-            conditions: List of filter conditions
-                [{
-                    'parameter': 'Temperature',
-                    'ranges': [
-                        {'type': 'lower', 'operator': '>=', 'value': 20.0},
-                        {'type': 'upper', 'operator': '<=', 'value': 80.0}
-                    ]
-                }]
-        
-        Returns:
-            Filtered Polars DataFrame (or None if no raw data)
-        """
-        if self.raw_dataframe is None:
-            logger.warning("No raw dataframe available for Polars filtering")
-            return None
-        
-        if not conditions:
-            return self.raw_dataframe
-        
-        logger.info(f"Applying Polars native filter with {len(conditions)} conditions")
-        
-        # Start with full dataframe
-        filtered_df = self.raw_dataframe
-        
-        # Apply each condition (AND logic between parameters)
-        for condition in conditions:
-            param_name = condition['parameter']
-            ranges = condition['ranges']
-            
-            if param_name not in filtered_df.columns:
-                logger.warning(f"Parameter '{param_name}' not in dataframe")
-                continue
-            
-            # Build OR expression for ranges within same parameter
-            range_expr = None
-            for range_filter in ranges:
-                range_type = range_filter['type']
-                operator = range_filter['operator']
-                value = range_filter['value']
-                
-                # Create Polars expression
-                if range_type == 'lower':
-                    if operator == '>=':
-                        expr = pl.col(param_name) >= value
-                    elif operator == '>':
-                        expr = pl.col(param_name) > value
-                    else:
-                        continue
-                elif range_type == 'upper':
-                    if operator == '<=':
-                        expr = pl.col(param_name) <= value
-                    elif operator == '<':
-                        expr = pl.col(param_name) < value
-                    else:
-                        continue
-                else:
-                    continue
-                
-                # Combine with OR
-                if range_expr is None:
-                    range_expr = expr
-                else:
-                    range_expr = range_expr | expr
-            
-            # Apply combined range expression (AND with previous conditions)
-            if range_expr is not None:
-                filtered_df = filtered_df.filter(range_expr)
-        
-        logger.info(f"Polars filter: {self.raw_dataframe.height} → {filtered_df.height} rows")
-        return filtered_df
 
     def set_filtered_data(self, filtered_data: Dict[str, Dict]):
         """
