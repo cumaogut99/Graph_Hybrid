@@ -14,7 +14,7 @@ for spec in sys.argv[2:]:
     cls = getattr(importlib.import_module(mod), cls_name)
     entry = {}
     for klass in reversed(cls.__mro__):
-        if not klass.__module__.startswith('src.'):
+        if not (klass.__module__.startswith('src.') or klass.__module__ == mod):
             continue
         for name, raw in vars(klass).items():
             entry[name] = raw  # later (more derived) wins, like attribute lookup

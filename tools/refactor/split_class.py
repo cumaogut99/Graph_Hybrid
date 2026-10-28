@@ -156,8 +156,15 @@ for mixin in plan['mixins']:
                     node.names = keep
                     edits.append((node.lineno, node.end_lineno, ast.unparse(node) if keep else None))
             elif isinstance(node, ast.Try):
-                if all(is_unused(b, a) for b in node.body for a in b.names):
-                    edits.append((node.lineno, node.end_lineno, None))
+                # the original's import fallback is not needed here: keep
+                # only the imports this module uses, without the try
+                used = []
+                for b in node.body:
+                    keep = [a for a in b.names if not is_unused(b, a)]
+                    if keep:
+                        b.names = keep
+                        used.append(ast.unparse(b))
+                edits.append((node.lineno, node.end_lineno, '\n'.join(used) if used else None))
         for s, e, new in sorted(edits, reverse=True):
             tl[s - 1:e] = [new] if new else []
         open(out_path, 'w').write('\n'.join(tl))
