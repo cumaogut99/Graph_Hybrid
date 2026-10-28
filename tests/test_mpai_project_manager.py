@@ -128,10 +128,15 @@ class TestProjectCreation:
         mpai_path = os.path.join(temp_dir, "test_project.mpai")
         
         # Create fake LOD data
-        lod_df = sample_dataframe.group_by_dynamic("time", every="0.1s").agg([
-            pl.col("voltage").min().alias("voltage_min"),
-            pl.col("voltage").max().alias("voltage_max"),
-        ])
+        lod_df = (
+            sample_dataframe
+            .with_columns((pl.col("time") * 10).floor().alias("bucket"))
+            .group_by("bucket", maintain_order=True)
+            .agg([
+                pl.col("voltage").min().alias("voltage_min"),
+                pl.col("voltage").max().alias("voltage_max"),
+            ])
+        )
         
         lod_buffer = io.BytesIO()
         lod_df.write_parquet(lod_buffer)

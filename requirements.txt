@@ -6,7 +6,7 @@ PyQt5>=5.15.0
 
 # Veri İşleme
 numpy>=1.21.0
-polars>=0.19.0
+polars>=0.19.0,<2  # 2.x scan_csv(rechunk=...) argümanını kaldırdı; CSV yükleme bozuluyor
 pandas>=1.4.0
 
 # Görselleştirme
