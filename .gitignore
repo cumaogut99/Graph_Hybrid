@@ -58,3 +58,8 @@ Thumbs.db
 
 # polars-lts-cpu binary (tools/fetch_polars_compat.py)
 vendor/
+
+# Test outputs and caches
+.pytest_cache/
+test_output_mpai/
+test_reader_mpai/
