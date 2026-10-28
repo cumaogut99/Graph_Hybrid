@@ -12,7 +12,7 @@ OPTIONAL_DEPENDENCIES = {'pyarrow'}
 
 def _project_modules():
     names = []
-    for base in ('src', 'app'):
+    for base in ('src',):
         for path in sorted((ROOT / base).rglob('*.py')):
             if '__pycache__' in path.parts:
                 continue

@@ -360,9 +360,9 @@ class TimeGraphApp(FramelessWindowMixin, QMainWindow):
         
         ✅ REFACTORED: app.py'deki metotlar artık bu modüllere delegate ediliyor.
         """
-        from app.data_operations import DataOperations
-        from app.project_operations import ProjectOperations
-        from app.layout_operations import LayoutOperations
+        from src.operations.data_operations import DataOperations
+        from src.operations.project_operations import ProjectOperations
+        from src.operations.layout_operations import LayoutOperations
         
         self.data_ops = DataOperations(self)
         self.project_ops = ProjectOperations(self)
