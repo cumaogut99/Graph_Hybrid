@@ -12,9 +12,8 @@ Handles signal processing operations including:
 
 import logging
 import os
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional
 import numpy as np
-import polars as pl
 from PyQt5.QtCore import QObject, pyqtSignal as Signal, QThread, QMutex, QMutexLocker
 from src.data.signal_processing.views import SignalViewsMixin
 from src.data.signal_processing.filtering import SignalFilteringMixin
