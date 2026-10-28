@@ -2,7 +2,6 @@
 Data Loader Worker for Time Graph Application
 
 Handles threaded data loading via MPAI streaming.
-Refactored to comply with ARROW_MIGRATION_ANALYSIS.md architecture.
 """
 
 import logging
