@@ -11,7 +11,7 @@ OPTIONAL_DEPENDENCIES = {'pyarrow'}
 
 
 def _project_modules():
-    names = ['time_graph_widget']
+    names = []
     for base in ('src', 'app'):
         for path in sorted((ROOT / base).rglob('*.py')):
             if '__pycache__' in path.parts:

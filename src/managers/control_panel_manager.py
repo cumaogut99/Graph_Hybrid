@@ -20,7 +20,7 @@ from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
 from PyQt5.QtGui import QFont
 
 if TYPE_CHECKING:
-    from .time_graph_widget import TimeGraphWidget
+    from src.ui.time_graph_widget import TimeGraphWidget
 
 logger = logging.getLogger(__name__)
 

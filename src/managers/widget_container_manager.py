@@ -48,7 +48,7 @@ class WidgetContainerManager(QObject):
     
     def _create_initial_widget(self):
         """Başlangıçta boş bir TimeGraphWidget oluştur."""
-        from time_graph_widget import TimeGraphWidget
+        from src.ui.time_graph_widget import TimeGraphWidget
         
         # Initial widget (file_index = -1 for initial state)
         self.initial_widget = TimeGraphWidget(parent=self.parent, loading_manager=self.loading_manager)
@@ -78,7 +78,7 @@ class WidgetContainerManager(QObject):
             return self.widgets[file_index]
         
         # Import here to avoid circular dependency
-        from time_graph_widget import TimeGraphWidget
+        from src.ui.time_graph_widget import TimeGraphWidget
         
         # Create new widget instance
         logger.info(f"Creating new TimeGraphWidget for file {file_index}")

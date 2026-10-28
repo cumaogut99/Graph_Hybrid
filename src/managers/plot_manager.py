@@ -27,7 +27,7 @@ from .plot import DateTimeAxisItem, PlotTooltipsHelper, PlotSecondaryAxisHelper
 from ..graphics.lod_engine import LODEngine
 
 if TYPE_CHECKING:
-    from .time_graph_widget import TimeGraphWidget
+    from src.ui.time_graph_widget import TimeGraphWidget
 
 logger = logging.getLogger(__name__)
 

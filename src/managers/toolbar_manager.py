@@ -25,7 +25,7 @@ from src.ui.frameless_window import DRAG_AREA_PROPERTY, WindowControls
 from src.utils.resources import icon_url
 
 if TYPE_CHECKING:
-    from ..widgets.time_graph_widget_refactored import TimeGraphWidget
+    from src.ui.time_graph_widget import TimeGraphWidget
 
 logger = logging.getLogger(__name__)
 

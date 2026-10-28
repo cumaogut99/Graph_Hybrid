@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, pyqtSignal as Signal, QObject
 
 if TYPE_CHECKING:
-    from .time_graph_widget import TimeGraphWidget
+    from src.ui.time_graph_widget import TimeGraphWidget
 
 logger = logging.getLogger(__name__)
 

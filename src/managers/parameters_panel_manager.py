@@ -19,7 +19,7 @@ from src.ui.parameter_calculator_dialog import ParameterCalculatorDialog
 from src.ui.parameter_item import ParameterItem
 
 if TYPE_CHECKING:
-    from ..widgets.time_graph_widget_refactored import TimeGraphWidget
+    from src.ui.time_graph_widget import TimeGraphWidget
 
 logger = logging.getLogger(__name__)
 

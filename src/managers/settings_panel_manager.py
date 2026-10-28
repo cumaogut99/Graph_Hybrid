@@ -21,7 +21,7 @@ from PyQt5.QtGui import QFont
 import polars as pl
 
 if TYPE_CHECKING:
-    from .time_graph_widget import TimeGraphWidget
+    from src.ui.time_graph_widget import TimeGraphWidget
 
 logger = logging.getLogger(__name__)
 

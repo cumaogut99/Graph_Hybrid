@@ -20,11 +20,6 @@ from PyQt5.QtGui import QIcon
 # Import our modular components - Always use absolute imports for standalone app
 from src.managers.filter_manager import FilterManager
 from src.graphics.graph_renderer import GraphRenderer
-import sys
-import os
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.insert(0, current_dir)
 
 from src.managers.toolbar_manager import ToolbarManager
 from src.managers.plot_manager import PlotManager

@@ -103,7 +103,7 @@ except ImportError as e:
 
 try:
     # ORİJİNAL VERSİYON - Kararlı ve test edilmiş
-    from time_graph_widget import TimeGraphWidget  # Orijinal stabil versiyon
+    from src.ui.time_graph_widget import TimeGraphWidget
     from src.data.data_import_dialog import DataImportDialog
     from src.managers.status_bar_manager import StatusBarManager
     from src.graphics.loading_overlay import LoadingManager
