@@ -1,3 +1,4 @@
 # Geliştirme ve test için (uygulama için gerekli değil)
 -r requirements.txt
 pytest>=7.0
+pyflakes>=3.0     # tools/refactor
