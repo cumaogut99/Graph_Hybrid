@@ -3,15 +3,18 @@
 ## Klasör yapısı
 
 ```
-app.py                     Giriş noktası (PyInstaller bunu paketler)
+app.py                     Giriş noktası (PyInstaller bunu paketler): başlangıç ayarları ve TimeGraphApp
 src/
-  operations/              TimeGraphApp işlemleri: dosya açma, proje, layout
+  operations/              TimeGraphApp işlemleri: dosya açma, proje, layout, veri kaydetme
   data/                    Okuma, dönüştürme (CSV/Excel/TDMS -> MPAI), SignalProcessor
     signal_processing/     SignalProcessor parçaları (views, filtering, normalization, statistics, queries)
     import_dialog/         DataImportDialog parçaları (layout, preview, theme, önizleme thread'i)
+    csv_conversion/        CsvToMpaiConverter parçaları (reading, time_column, numeric, writing, zaman kalıpları)
   managers/                Panel ve davranış yöneticileri
     plot/                  PlotManager parçaları (lod, subplots, signals, view, markers) ve yardımcıları
+    correlations/          CorrelationsPanelManager parçaları (panel_ui, calculation, parameter_dialog)
   ui/                      Pencere, panel ve dialog'lar
+    main_window/           TimeGraphApp parçaları (loading, saving, files, shutdown)
     time_graph_widget.py   Her dosyanın ana widget'ı
     time_graph/            TimeGraphWidget parçaları (tabs, cursor_statistics, graph_settings, filters, panels, theme, layout_config)
     statistics/            StatisticsPanel parçaları (columns, graph_sections, signal_rows, values) ve satır widget'ları
@@ -20,8 +23,9 @@ tests/                     pytest testleri
 tools/refactor/            Büyük sınıfları davranış değiştirmeden bölme araçları
 ```
 
-Büyük sınıflar **mixin**'lere bölünmüştür: ana sınıf (`SignalProcessor`,
-`TimeGraphWidget`, `PlotManager`, `StatisticsPanel`, `DataImportDialog`)
+Büyük sınıflar **mixin**'lere bölünmüştür: ana sınıf (`TimeGraphApp`, `SignalProcessor`,
+`TimeGraphWidget`, `PlotManager`, `StatisticsPanel`, `DataImportDialog`,
+`CsvToMpaiConverter`, `CorrelationsPanelManager`)
 `__init__`'i, Qt sinyallerini ve çekirdek akışı tutar; diğer metotlar alt
 klasördeki mixin'lerde durur. Mixin'ler düz sınıflardır (QObject'ten türemez),
 durumu ana sınıfın `__init__`'i kurar, `self` aynıdır. Yeni bir metot ilgili
@@ -49,6 +53,7 @@ Kural: bir commit'te yalnızca taşıma; isim veya mantık değişikliği ayrı 
    `python tools/refactor/split_class.py plan.json`
    Metotlar ve üstlerindeki yorumlar aynen taşınır, mixin'e orijinal modülün
    importları kopyalanıp kullanılmayanlar silinir, tanımsız kalan isimler raporlanır.
+   Silinecek ölü metotlar için: `python tools/refactor/remove_methods.py dosya.py Sınıf metot ...`
 3. Ana dosyada artık kullanılmayan importları temizle:
    `python tools/refactor/prune_new_unused.py eski_kopya.py src/x/module.py`
 4. Doğrula: her metodun sözdizim ağacı aynı mı, hiçbir yorum kayboldu mu, testler geçiyor mu?

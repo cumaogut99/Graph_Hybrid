@@ -186,8 +186,12 @@ text = '\n'.join(lines)
 text = re.sub(r'\n(?:[ \t]*\n){2,}(?=[ \t]+\S)', '\n\n', text)
 mixin_names = [m['class'] for m in plan['mixins']]
 header_re = re.compile(rf'^class {plan["class"]}\(', re.M)
-assert header_re.search(text)
-text = header_re.sub(f'class {plan["class"]}({", ".join(mixin_names)}, ', text, count=1)
+if header_re.search(text):
+    text = header_re.sub(f'class {plan["class"]}({", ".join(mixin_names)}, ', text, count=1)
+else:  # no bases
+    bare_re = re.compile(rf'^class {plan["class"]}:', re.M)
+    assert bare_re.search(text)
+    text = bare_re.sub(f'class {plan["class"]}({", ".join(mixin_names)}):', text, count=1)
 imports = '\n'.join(f'from {pkg_name}.{m["module"]} import {m["class"]}' for m in plan['mixins'])
 # insert after the last top-level import before the class
 t2 = ast.parse(text)

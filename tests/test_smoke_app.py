@@ -60,6 +60,12 @@ def test_import_plot_and_analyse(qapp, main_window, engine_csv):
     plot_manager = widget.get_active_graph_container().plot_manager
     assert set(plot_manager.current_signals) == {'RPM_0', 'MAP_0', 'EGT1_0'}
 
+    correlations = widget.correlations_panel_manager
+    correlations._on_target_changed('RPM')
+    correlations._calculate_correlations(force=True)
+    assert set(correlations.current_correlations) == {'MAP', 'EGT1'}
+    assert all(-1.0 <= r <= 1.0 for r in correlations.current_correlations.values())
+
     stats = processor.calculate_statistics(['RPM'], time_range=(5.0, 10.0))['RPM']
     assert 1500 < stats['min'] < stats['mean'] < stats['max'] < 2501
 
