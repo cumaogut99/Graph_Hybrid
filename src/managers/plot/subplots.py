@@ -264,10 +264,6 @@ class PlotSubplotsMixin:
         self._draw_markers()
         logger.info(f"UI rebuilt with {self.subplot_count} subplots.")
 
-    def get_subplot_count(self) -> int:
-        """Returns the current number of subplots."""
-        return self.subplot_count
-
     def enable_datetime_axis(self, enable=True):
         """Enable datetime formatting for all plot x-axes."""
         self.datetime_axis_enabled = enable

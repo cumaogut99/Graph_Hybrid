@@ -187,10 +187,6 @@ class PlotManager(PlotLodMixin, PlotSubplotsMixin, PlotSignalsMixin, PlotViewMix
         """✅ REFACTORED: Delegate to helper"""
         self.tooltips_helper.set_tooltips_enabled(enabled)
 
-    def set_tooltips_enabled(self, enabled: bool):
-        """✅ REFACTORED: Delegate to helper"""
-        self.tooltips_helper.set_tooltips_enabled(enabled)
-
     def _setup_tooltip_for_plot(self, plot_widget, enabled: bool):
         """✅ REFACTORED: Delegate to helper"""
         self.tooltips_helper._setup_tooltip_for_plot(plot_widget, enabled)
