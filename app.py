@@ -85,13 +85,9 @@ from PyQt5.QtGui import QIcon, QPixmap, QPainter, QFont
 # Import our time graph widget and dialog
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Plots are drawn without OpenGL. With OpenGL viewports Qt 5 composes the
-# whole window with OpenGL, and after the window moves to a monitor with a
-# different scaling it is drawn with the old scale: the content is shifted and
-# its top is cut off until the window is resized. Antialiasing is off, so
-# raster drawing looks the same and is fast enough for the downsampled data.
+# Enable OpenGL for performance
 import pyqtgraph as pg
-pg.setConfigOptions(useOpenGL=False)
+pg.setConfigOptions(useOpenGL=True)
 
 # PyQtGraph patch'i uygula - autoRangeEnabled AttributeError sorununu çöz
 try:
