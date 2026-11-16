@@ -43,6 +43,14 @@ Testler Qt'yi ekransız çalıştırır, geçici klasörde çalışır ve gerçe
 açar, bir CSV'yi import dialog'u ve yükleme thread'i üzerinden yükler, kanal
 çizer, normalizasyon, sekme ve layout akışlarını çalıştırır.
 
+## Grafik akıcılığını ölçmek
+
+`python tools/pan_benchmark.py veri.csv` uygulamayı verilen dosyayla açar,
+3 grafiğe 4'er kanal çizer, ilk grafiği sol tuş basılıyken sürükler ve OpenGL
+açık/kapalı iki modda fps ile kare süresini yazar (`--graphs`, `--signals`,
+`--zoom` ile değiştirilebilir). Sonuç ekran kartına bağlıdır; iki modu aynı
+bilgisayarda karşılaştırmak için kullanılır.
+
 ## Büyük bir dosyayı düşük riskle bölmek
 
 Kural: bir commit'te yalnızca taşıma; isim veya mantık değişikliği ayrı commit'te.
