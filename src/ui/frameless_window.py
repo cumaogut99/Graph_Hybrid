@@ -79,8 +79,8 @@ if IS_WINDOWS:
     _user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
                                      ctypes.c_int, ctypes.c_int, ctypes.c_uint]
     _user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
-    _user32.MonitorFromWindow.restype = wintypes.HMONITOR
-    _user32.MonitorFromWindow.argtypes = [wintypes.HWND, wintypes.DWORD]
+    _user32.MonitorFromRect.restype = wintypes.HMONITOR
+    _user32.MonitorFromRect.argtypes = [ctypes.POINTER(wintypes.RECT), wintypes.DWORD]
     _user32.GetMonitorInfoW.argtypes = [wintypes.HMONITOR, ctypes.POINTER(_MONITORINFO)]
     _dwmapi.DwmExtendFrameIntoClientArea.argtypes = [wintypes.HWND, ctypes.POINTER(_MARGINS)]
 
@@ -151,11 +151,14 @@ class FramelessWindowMixin:
             if msg.message == WM_NCCALCSIZE and msg.wParam:
                 if _user32.IsZoomed(msg.hWnd):
                     # A maximized window is larger than the screen by its frame
-                    # width; keep the client area on the monitor's work area
+                    # width; keep the client area on the monitor's work area.
+                    # rgrc[0] is the new window rectangle: use its monitor, not
+                    # the one the window is on now (they differ when a maximized
+                    # window moves to another monitor, e.g. Win+Shift+Arrow)
                     params = _NCCALCSIZE_PARAMS.from_address(msg.lParam)
                     info = _MONITORINFO()
                     info.cbSize = ctypes.sizeof(_MONITORINFO)
-                    monitor = _user32.MonitorFromWindow(msg.hWnd, MONITOR_DEFAULTTONEAREST)
+                    monitor = _user32.MonitorFromRect(ctypes.byref(params.rgrc[0]), MONITOR_DEFAULTTONEAREST)
                     if _user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
                         params.rgrc[0] = info.rcWork
                 # No non-client area: the client covers the whole window

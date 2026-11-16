@@ -59,6 +59,11 @@ def test_import_plot_and_analyse(qapp, main_window, engine_csv):
     _settle(qapp)
     plot_manager = widget.get_active_graph_container().plot_manager
     assert set(plot_manager.current_signals) == {'RPM_0', 'MAP_0', 'EGT1_0'}
+    # No OpenGL viewports: with them the window is drawn with the old scale
+    # after moving to a monitor with different scaling (top cut off)
+    from PyQt5.QtWidgets import QOpenGLWidget
+    assert plot_manager.plot_widgets
+    assert not any(isinstance(p.viewport(), QOpenGLWidget) for p in plot_manager.plot_widgets)
 
     correlations = widget.correlations_panel_manager
     correlations._on_target_changed('RPM')
