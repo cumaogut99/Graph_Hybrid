@@ -592,6 +592,7 @@ class CursorManager(QObject):
             # Get the new X range
             x_range = ranges[0]  # ranges is [[x_min, x_max], [y_min, y_max]]
             x_min, x_max = x_range[0], x_range[1]
+            moved = False
             
             # Check and adjust cursor 1 if it's outside the view
             if self.dual_cursors_1:
@@ -603,6 +604,7 @@ class CursorManager(QObject):
                         cursor.blockSignals(True)
                         cursor.setPos(new_pos)
                         cursor.blockSignals(False)
+                    moved = True
                     logger.debug(f"Cursor 1 adjusted from {cursor1_pos:.3f} to {new_pos:.3f} (view: [{x_min:.3f}, {x_max:.3f}])")
             
             # Check and adjust cursor 2 if it's outside the view
@@ -615,10 +617,14 @@ class CursorManager(QObject):
                         cursor.blockSignals(True)
                         cursor.setPos(new_pos)
                         cursor.blockSignals(False)
+                    moved = True
                     logger.debug(f"Cursor 2 adjusted from {cursor2_pos:.3f} to {new_pos:.3f} (view: [{x_min:.3f}, {x_max:.3f}])")
             
-            # Emit updated positions if any cursor was moved
-            self._emit_cursor_positions()
+            # Emit updated positions if any cursor was moved. Emitting on
+            # every pan/zoom step recalculated the statistics, legend values
+            # and panels for unchanged cursors on each frame of a drag.
+            if moved:
+                self._emit_cursor_positions()
             
         except Exception as e:
             logger.warning(f"Error handling view range change: {e}")

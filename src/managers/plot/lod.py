@@ -13,6 +13,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# View widths loaded on each side of the visible range, so panning does not
+# read the file on every step
+LOD_MARGIN_VIEWS = 1
+# Aggregated data is reloaded when the view is zoomed in past this fraction
+# of the width it was loaded for
+LOD_MIN_ZOOM_RATIO = 0.8
+
 
 class PlotLodMixin:
     """Level-of-detail data for the visible range: refetching on zoom/pan and downsampling."""
@@ -25,16 +32,14 @@ class PlotLodMixin:
         - RAW mode: sample_count < pixel_width * 2 → fetch exact raw data
         - AGGREGATED mode: sample_count >= pixel_width * 2 → use C++ downsampler
         """
-        # Debounce rapid zoom/pan events
-        if self._lod_timer is not None:
-            self._lod_timer.stop()
-        
+        # Debounce rapid zoom/pan events (one timer, restarted on each event)
         self._lod_pending_ranges[plot_index] = ranges
         
-        from PyQt5.QtCore import QTimer
-        self._lod_timer = QTimer()
-        self._lod_timer.setSingleShot(True)
-        self._lod_timer.timeout.connect(self._process_pending_lod_updates)
+        if self._lod_timer is None:
+            from PyQt5.QtCore import QTimer
+            self._lod_timer = QTimer()
+            self._lod_timer.setSingleShot(True)
+            self._lod_timer.timeout.connect(self._process_pending_lod_updates)
         self._lod_timer.start(50)  # 50ms debounce for responsive zoom
 
     def _process_pending_lod_updates(self):
@@ -64,6 +69,10 @@ class PlotLodMixin:
         if signal_processor is None:
             self._lod_pending_ranges.clear()
             return
+
+        # Forget the loads of signals that are no longer plotted
+        for key in [k for k in self._lod_loaded if k not in self.current_signals]:
+            del self._lod_loaded[key]
         
         # Get pixel width from first plot widget
         pixel_width = 1920  # Default
@@ -152,20 +161,33 @@ class PlotLodMixin:
                 # Update mode cache
                 self._current_lod_modes[signal_key] = lod_mode
                 
+                # The data loaded last time covers one view width on each
+                # side of the view: panning within it, or zooming a little,
+                # needs no new read. Reading every signal again on each step
+                # of a drag made the frames slow.
+                view_span = view_x_max - view_x_min
+                if self._lod_data_covers_view(signal_key, plot_item, lod_mode,
+                                              view_x_min, view_x_max, time_range):
+                    continue
+                fetch_x_min = view_x_min - LOD_MARGIN_VIEWS * view_span
+                fetch_x_max = view_x_max + LOD_MARGIN_VIEWS * view_span
+                fetch_views = 1 + 2 * LOD_MARGIN_VIEWS
+                
                 # Set target points based on mode
                 if lod_mode == "RAW":
-                    target_points = estimated_sample_count  # All samples
+                    target_points = estimated_sample_count * fetch_views  # All samples
                 else:
-                    target_points = pixel_width * 2  # 2 points per pixel (min/max)
+                    target_points = pixel_width * 2 * fetch_views  # 2 points per pixel (min/max)
                 
-                logger.info(f"[LOD] {signal_name}: mode={lod_mode}, samples={estimated_sample_count:,}, target={target_points:,}, range=[{view_x_min:.2f}, {view_x_max:.2f}]")
+                logger.info(f"[LOD] {signal_name}: mode={lod_mode}, samples={estimated_sample_count:,}, target={target_points:,}, range=[{fetch_x_min:.2f}, {fetch_x_max:.2f}]")
                 
                 # Fetch data with appropriate resolution
                 new_x, new_y = self._fetch_lod_data(
                     reader, time_col, col_name,
-                    view_x_min, view_x_max,
+                    fetch_x_min, fetch_x_max,
                     row_count, time_range,
-                    target_points, lod_mode
+                    target_points, lod_mode,
+                    visible_samples=estimated_sample_count
                 )
                 
                 if new_x is not None and len(new_x) > 0:
@@ -173,6 +195,15 @@ class PlotLodMixin:
                     try:
                         new_y = signal_processor.normalize_for_display(signal_name, new_y)
                         plot_item.setData(new_x, new_y)
+                        self._lod_loaded[signal_key] = {
+                            'mode': lod_mode,
+                            'x_min': fetch_x_min,
+                            'x_max': fetch_x_max,
+                            'view_span': view_span,
+                            # setData copies; this is the item's array until
+                            # something else replaces the item's data
+                            'x_data': plot_item.xData,
+                        }
                         logger.debug(f"[LOD] Updated {signal_name} with {len(new_x)} points")
                     except Exception as e:
                         logger.error(f"[LOD] Failed to update {signal_name}: {e}")
@@ -182,10 +213,28 @@ class PlotLodMixin:
         
         self._lod_pending_ranges.clear()
 
+    def _lod_data_covers_view(self, signal_key: str, plot_item, lod_mode: str,
+                              view_x_min: float, view_x_max: float, time_range: tuple) -> bool:
+        """True if the item still shows LOD data loaded for this view."""
+        loaded = self._lod_loaded.get(signal_key)
+        if loaded is None or loaded['mode'] != lod_mode:
+            return False
+        # Other code (normalization, filters, redraws) replaced the data
+        if plot_item.xData is not loaded['x_data']:
+            return False
+        if loaded['x_min'] > max(view_x_min, time_range[0]) or loaded['x_max'] < min(view_x_max, time_range[1]):
+            return False
+        # Aggregated data has 2 points per pixel of the view it was loaded
+        # for: zoomed in further, it would look coarse
+        if lod_mode != "RAW" and (view_x_max - view_x_min) < LOD_MIN_ZOOM_RATIO * loaded['view_span']:
+            return False
+        return True
+
     def _fetch_lod_data(self, reader, time_col: str, signal_col: str,
                         view_x_min: float, view_x_max: float,
                         row_count: int, time_range: tuple,
-                        target_points: int, lod_mode: str):
+                        target_points: int, lod_mode: str,
+                        visible_samples: int = None):
         """
         Fetch data at appropriate LOD resolution.
         
@@ -198,6 +247,8 @@ class PlotLodMixin:
             time_range: Full data time range (min, max)
             target_points: Target output points
             lod_mode: "RAW" or "AGGREGATED"
+            visible_samples: Samples in the visible part of the range, which
+                selects the LOD level (default: all of view_x_min..view_x_max)
         
         Returns:
             (x_data, y_data) numpy arrays
@@ -252,7 +303,8 @@ class PlotLodMixin:
                         
                         if available:
                             # Calculate visible samples to select LOD level
-                            visible_samples = int(row_count * (view_x_max - view_x_min) / (time_range[1] - time_range[0]))
+                            if visible_samples is None:
+                                visible_samples = int(row_count * (view_x_max - view_x_min) / (time_range[1] - time_range[0]))
                             lod_level = select_lod_level(visible_samples, available)
                             
                             if lod_level:

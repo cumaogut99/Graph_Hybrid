@@ -94,6 +94,8 @@ class PlotManager(PlotLodMixin, PlotSubplotsMixin, PlotSignalsMixin, PlotViewMix
         # ✅ NEW: LOD mode cache and hysteresis to prevent flicker
         # Tracks current LOD mode per signal: signal_key -> "RAW" | "AGGREGATED"
         self._current_lod_modes = {}
+        # signal_key -> range, mode and data of the last LOD load (see _lod_data_covers_view)
+        self._lod_loaded = {}
         # Hysteresis band: 20% tolerance to prevent rapid mode switching at threshold
         self._lod_hysteresis_up = 1.2   # Switch to AGGREGATED when > threshold * 1.2
         self._lod_hysteresis_down = 0.8  # Switch to RAW when < threshold * 0.8
