@@ -16,7 +16,7 @@ import ctypes
 import logging
 import sys
 
-from PyQt5.QtCore import Qt, QEvent, QPoint, QPointF, QRectF, QSize
+from PyQt5.QtCore import Qt, QEvent, QPoint, QPointF, QRectF, QSize, QTimer
 from PyQt5.QtGui import QColor, QGuiApplication, QPainter, QPen
 from PyQt5.QtWidgets import (
     QAbstractButton, QAbstractSlider, QAbstractSpinBox, QComboBox, QHBoxLayout,
@@ -42,6 +42,7 @@ if IS_WINDOWS:
     WM_GETMINMAXINFO = 0x0024
     WM_NCCALCSIZE = 0x0083
     WM_NCHITTEST = 0x0084
+    WM_DPICHANGED = 0x02E0
     GWL_STYLE = -16
     WS_CAPTION = 0x00C00000
     WS_THICKFRAME = 0x00040000
@@ -136,10 +137,24 @@ class FramelessWindowMixin:
             _dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(margins))
             self._native_frame_ready = True
             # Recalculate the frame now (WM_NCCALCSIZE) with the new styles
-            _user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, SWP_FRAMECHANGED_ONLY)
+            self._refresh_native_frame()
+            # Qt keeps the frame margins it reads from WM_NCCALCSIZE (none
+            # here), but when the window changes screen it recalculates them
+            # from the window style (QWindowsWindow::updateFullFrameMargins).
+            # With WS_CAPTION | WS_THICKFRAME that adds a caption and borders
+            # the window does not have, and Qt then places its content off
+            # the real client area: shifted, smaller, with the top cut off
+            # (OpenGL draws from the bottom-left). A WM_NCCALCSIZE right
+            # after the screen change gives Qt the real margins again.
+            self.windowHandle().screenChanged.connect(self._refresh_native_frame)
         except Exception as e:
             # Still usable: a frameless window with the caption buttons
             logger.warning(f"Native frame setup failed: {e}")
+
+    def _refresh_native_frame(self, *_):
+        """Send WM_NCCALCSIZE, so Qt takes the frame margins from nativeEvent."""
+        if getattr(self, '_native_frame_ready', False):
+            _user32.SetWindowPos(int(self.winId()), None, 0, 0, 0, 0, SWP_FRAMECHANGED_ONLY)
 
     def _dpr(self) -> float:
         handle = self.windowHandle()
@@ -163,6 +178,11 @@ class FramelessWindowMixin:
                         params.rgrc[0] = info.rcWork
                 # No non-client area: the client covers the whole window
                 return True, 0
+            if msg.message == WM_DPICHANGED:
+                # Qt recalculates the frame margins from the style here too
+                # (also when the scaling of the same screen changes, with no
+                # screenChanged); refresh them once Qt has handled the message
+                QTimer.singleShot(0, self._refresh_native_frame)
             if msg.message == WM_GETMINMAXINFO:
                 # Qt would add the (removed) caption and borders to the
                 # minimum size; the window is exactly its client area
